@@ -1,6 +1,6 @@
 [package]
 name = "seela"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 authors = ["Bardiya Feili"]
@@ -13,5 +13,3 @@ clap = { version = "4.0", features = ["derive"] }
 dirs = "5.0"
 walkdir = "2.4"
 shellexpand = "3.1"
-# No skim or tmux_interface needed, using std::process::Command
-
