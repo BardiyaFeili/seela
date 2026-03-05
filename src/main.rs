@@ -1,6 +1,8 @@
 mod cli;
 mod config;
 mod run;
+mod fzf;
+mod tmux;
 
 use std::error::Error;
 

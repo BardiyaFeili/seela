@@ -1,6 +1,6 @@
 # seela
 
-A simple tmux session manager. It scans your projects, lets you pick one via fzf,
+A simple tmux session manager. Lets you fuzzy-find your projects,
 and handles the window/pane layout based on your config.
 
 ## How to build
@@ -25,6 +25,14 @@ Or specify a custom config path:
 seela --config path/to/config.toml
 ```
 
+## Tmux Integration
+
+For the best experience, you can bind `seela` to a key in your `tmux.conf` to open it in a popup:
+
+```tmux
+bind g display-popup -w 80% -h 80% -E "seela"
+```
+
 ### Configuration
 
 `seela` looks for a config file in the following order:
@@ -41,7 +49,20 @@ Example `config.toml`:
 search_dirs = ["~/projects", "~/work"]
 exclude_paths = ["~/projects/archive"]
 force_include = ["~/special-project"]
+
+[fzf]
+preview = true
+preview_command = "tree -C -L 2 {}"
+fzf_opts = "--height 40% --layout=reverse"
 ```
+
+### FZF Configuration
+
+| Option            | Description                            | Default                           |
+| ----------------- | -------------------------------------- | --------------------------------- |
+| `preview`         | Show a preview pane in `fzf`           | `true`                            |
+| `preview_command` | Command used for the preview           | `"tree -C -L 2 {}"`               |
+| `fzf_opts`        | Additional flags for the `fzf` command | `None` (uses `$FZF_DEFAULT_OPTS`) |
 
 ## TODO
 

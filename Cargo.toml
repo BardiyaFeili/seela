@@ -2,6 +2,9 @@
 name = "seela"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+authors = ["Bardiya Feili"]
+description = "A simple tmux session manager."
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

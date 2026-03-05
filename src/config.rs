@@ -6,6 +6,32 @@ use std::path::PathBuf;
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub folders: Folders,
+    #[serde(default)]
+    pub fzf: FzfConfig,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FzfConfig {
+    #[serde(default = "defaults::preview")]
+    pub preview: bool,
+    #[serde(default = "defaults::preview_command")]
+    pub preview_command: String,
+    pub fzf_opts: Option<String>,
+}
+
+impl Default for FzfConfig {
+    fn default() -> Self {
+        Self {
+            preview: defaults::preview(),
+            preview_command: defaults::preview_command(),
+            fzf_opts: None,
+        }
+    }
+}
+
+mod defaults {
+    pub fn preview() -> bool { true }
+    pub fn preview_command() -> String { "tree -C -L 2 {}".to_string() }
 }
 
 impl Config {

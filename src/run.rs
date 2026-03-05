@@ -1,8 +1,6 @@
 use crate::config::Config;
 use std::error::Error;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use walkdir::WalkDir;
 
 /// Expand ~ and return an absolute path
@@ -104,78 +102,13 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let projects = find_projects(&config);
-    let input = projects
+    let project_strings = projects
         .iter()
         .map(|p| p.to_string_lossy().to_string())
-        .collect::<Vec<String>>()
-        .join("\n");
+        .collect::<Vec<String>>();
 
-    // Spawn fzf
-    let mut child = Command::new("fzf")
-        .arg("--preview")
-        .arg("tree -C -L 2 {}")
-        // .arg("--bind")
-        // .arg("ctrl-j:down,ctrl-k:up")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()?;
-
-    // Feed projects to fzf
-    let mut stdin = child.stdin.take().ok_or("Failed to open fzf stdin")?;
-    stdin.write_all(input.as_bytes())?;
-    drop(stdin);
-
-    let output = child.wait_with_output()?;
-    if !output.status.success() {
-        return Ok(()); // User cancelled fzf
-    }
-
-    let selected = String::from_utf8(output.stdout)?.trim().to_string();
-    if !selected.is_empty() {
-        open_in_tmux(Path::new(&selected))?;
-    }
-
-    Ok(())
-}
-
-fn open_in_tmux(path: &Path) -> Result<(), Box<dyn Error>> {
-    let session_name = path
-        .file_name()
-        .ok_or("Could not get directory name")?
-        .to_string_lossy()
-        .replace('.', "_");
-
-    // Create session if it doesn't exist
-    let status = Command::new("tmux")
-        .arg("has-session")
-        .arg("-t")
-        .arg(&session_name)
-        .status();
-
-    if status.is_err() || !status.unwrap().success() {
-        Command::new("tmux")
-            .arg("new-session")
-            .arg("-d")
-            .arg("-s")
-            .arg(&session_name)
-            .arg("-c")
-            .arg(path.to_string_lossy().as_ref())
-            .status()?;
-    }
-
-    // Switch or attach
-    if std::env::var("TMUX").is_ok() {
-        Command::new("tmux")
-            .arg("switch-client")
-            .arg("-t")
-            .arg(&session_name)
-            .status()?;
-    } else {
-        Command::new("tmux")
-            .arg("attach-session")
-            .arg("-t")
-            .arg(&session_name)
-            .status()?;
+    if let Some(selected) = crate::fzf::select_project(&project_strings, &config.fzf)? {
+        crate::tmux::open_session(Path::new(&selected))?;
     }
 
     Ok(())
