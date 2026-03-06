@@ -116,8 +116,14 @@ split = "vertical"  # The children below will be side-by-side
 
 You can use special operators in the `exec` list to control command execution:
 
-- **`@run <command>`**: Prompts for confirmation (`Run "command"? [Y/n]`) before
-  executing.
+- **`@run <command>`**: Executes the command in the pane with several
+  environment variables set:
+  - `SEELA_SESSION_PATH`: Absolute path to the project.
+  - `SEELA_SESSION_NAME`: Name of the tmux session.
+  - `SEELA_WINDOW_NAME`: Name of the current window.
+  - `SEELA_PANE_ID`: Unique ID of the current pane.
+- **`@confirm <command>`**: Prompts for confirmation (`Run "command"? [Y/n]`)
+  before executing.
 - **`@wait <seconds>`**: Pauses execution for the specified number of seconds.
 - **`@wait-milli <ms>`** (alias **`@wait-ms`**): Pauses execution for the
   specified number of milliseconds.
@@ -125,9 +131,9 @@ You can use special operators in the `exec` list to control command execution:
   the pane (e.g., `Enter`, `Space`, `C-c`, `C-l`).
 
 > **Note:** All panes and windows are initialized before the execution of
-> `@run` or `@wait` begins. However, since commands are executed sequentially,
-> using high `@wait` times or many `@run` prompts will delay the final setup
-> and focus of the tmux session.
+> operators begins. However, since commands are executed sequentially in
+> parallel threads per pane, using high `@wait` times or many `@confirm`
+> prompts will delay the final focus of the tmux session.
 
 ## TODO
 

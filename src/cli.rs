@@ -16,7 +16,6 @@ pub struct Args {
     #[arg(long)]
     pub headless: bool,
 
-    /// Command to run in "run mode" (internal use)
     #[arg(long, hide = true)]
     pub run_command: Option<String>,
 }

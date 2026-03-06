@@ -60,7 +60,6 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
         .map(|s| expand_path(s))
         .collect();
 
-    // 1. Add force_include folders immediately if they exist
     for path in &force_include {
         if path.exists() {
             let mut p = projects.lock().unwrap();
@@ -70,7 +69,6 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
         }
     }
 
-    // 2. Search in search_dirs in parallel
     search_dirs.par_iter().for_each(|root| {
         if !root.exists() {
             return;

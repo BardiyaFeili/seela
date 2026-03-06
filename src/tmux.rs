@@ -1,6 +1,6 @@
 use crate::config::{Config, Session, SplitDirection};
 use std::error::Error;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -73,6 +73,9 @@ fn get_command_output(mut cmd: Command, debug: bool) -> Result<String, Box<dyn E
 struct ExecTask {
     pane_id: String,
     commands: Vec<String>,
+    path: PathBuf,
+    session_name: String,
+    window_name: String,
 }
 
 fn create_session_from_config(
@@ -138,32 +141,32 @@ fn create_session_from_config(
             }
 
             for (i, pane_config) in wc.panes.iter().enumerate() {
-                setup_pane(&pane_ids[i], pane_config, path, debug, &mut exec_tasks)?;
+                setup_pane(
+                    &pane_ids[i],
+                    pane_config,
+                    path,
+                    debug,
+                    &mut exec_tasks,
+                    session_name,
+                    window_name,
+                )?;
             }
         }
     }
 
-    // Run all execution tasks after layout is complete
     if !exec_tasks.is_empty() {
-        if debug {
-            println!("Executing {} command tasks in parallel...", exec_tasks.len());
-        }
-        // Initial wait for tmux and shells to settle
-        thread::sleep(Duration::from_millis(1000));
+        thread::sleep(Duration::from_millis(600));
 
         thread::scope(|s| {
             for task in exec_tasks {
                 s.spawn(move || {
-                    // Extra per-pane settle time
-                    thread::sleep(Duration::from_millis(250));
-
-                    for exec_cmd in task.commands {
+                    for (cmd_idx, exec_cmd) in task.commands.iter().enumerate() {
                         let mut final_cmd = exec_cmd.clone();
                         let trimmed = exec_cmd.trim();
 
                         if let Some((keyword, val)) = trimmed.split_once(' ') {
                             match keyword {
-                                "@run" | "@src/run.rs" => {
+                                "@confirm" => {
                                     if let Ok(current_exe) = std::env::current_exe() {
                                         final_cmd = format!(
                                             "{} --run-command {:?}",
@@ -172,38 +175,30 @@ fn create_session_from_config(
                                         );
                                     }
                                 }
+                                "@run" => {
+                                    final_cmd = format!(
+                                        "SEELA_SESSION_PATH={:?} SEELA_SESSION_NAME={:?} SEELA_WINDOW_NAME={:?} SEELA_PANE_ID={:?} {}",
+                                        task.path.display(),
+                                        task.session_name,
+                                        task.window_name,
+                                        task.pane_id,
+                                        val
+                                    );
+                                }
                                 "@wait" => {
                                     if let Ok(secs) = val.parse::<u64>() {
-                                        if debug {
-                                            println!(
-                                                "Waiting {secs} seconds in pane {pane_id}...",
-                                                pane_id = task.pane_id
-                                            );
-                                        }
                                         thread::sleep(Duration::from_secs(secs));
                                         continue;
                                     }
                                 }
                                 "@wait-milli" | "@wait-ms" => {
                                     if let Ok(ms) = val.parse::<u64>() {
-                                        if debug {
-                                            println!(
-                                                "Waiting {ms}ms in pane {pane_id}...",
-                                                pane_id = task.pane_id
-                                            );
-                                        }
                                         thread::sleep(Duration::from_millis(ms));
                                         continue;
                                     }
                                 }
                                 "@send-key" | "@sk" => {
-                                    if debug {
-                                        println!(
-                                            "Sending key {val} to pane {pane_id}...",
-                                            pane_id = task.pane_id
-                                        );
-                                    }
-                                    thread::sleep(Duration::from_millis(250));
+                                    thread::sleep(Duration::from_millis(60));
                                     let mut key_cmd = Command::new("tmux");
                                     key_cmd
                                         .arg("send-keys")
@@ -217,7 +212,17 @@ fn create_session_from_config(
                             }
                         }
 
-                        // 1. Clear current line
+                        if cmd_idx == 0 {
+                            let mut break_cmd = Command::new("tmux");
+                            break_cmd
+                                .arg("send-keys")
+                                .arg("-t")
+                                .arg(&task.pane_id)
+                                .arg("C-c");
+                            let _ = break_cmd.status();
+                            thread::sleep(Duration::from_millis(100));
+                        }
+
                         let mut clear_cmd = Command::new("tmux");
                         clear_cmd
                             .arg("send-keys")
@@ -225,9 +230,8 @@ fn create_session_from_config(
                             .arg(&task.pane_id)
                             .arg("C-u");
                         let _ = clear_cmd.status();
-                        thread::sleep(Duration::from_millis(100));
+                        thread::sleep(Duration::from_millis(60));
 
-                        // 2. Send command literally
                         let mut run_cmd = Command::new("tmux");
                         run_cmd
                             .arg("send-keys")
@@ -236,33 +240,24 @@ fn create_session_from_config(
                             .arg("-l")
                             .arg(&final_cmd);
                         let _ = run_cmd.status();
-                        thread::sleep(Duration::from_millis(100));
+                        thread::sleep(Duration::from_millis(60));
 
-                        // 3. Execute
                         let mut enter_cmd = Command::new("tmux");
                         enter_cmd
                             .arg("send-keys")
                             .arg("-t")
                             .arg(&task.pane_id)
                             .arg("C-m");
-
-                        if debug {
-                            println!("Running: {final_cmd} in {pane_id}", pane_id = task.pane_id);
-                        }
                         let _ = enter_cmd.status();
 
-                        thread::sleep(Duration::from_millis(250));
+                        thread::sleep(Duration::from_millis(100));
                     }
                 });
             }
         });
     }
 
-    // Focus the requested window if specified
     if let Some(focus_name) = &session_config.window_focus {
-        if debug {
-            println!("Focusing window: {focus_name}");
-        }
         Command::new("tmux")
             .arg("select-window")
             .arg("-t")
@@ -279,6 +274,8 @@ fn setup_pane(
     path: &Path,
     debug: bool,
     exec_tasks: &mut Vec<ExecTask>,
+    session_name: &str,
+    window_name: &str,
 ) -> Result<(), Box<dyn Error>> {
     if !config.panes.is_empty() {
         let mut sub_pane_ids = Vec::new();
@@ -307,7 +304,15 @@ fn setup_pane(
         }
 
         for (i, sub_pane_config) in config.panes.iter().enumerate() {
-            setup_pane(&sub_pane_ids[i], sub_pane_config, path, debug, exec_tasks)?;
+            setup_pane(
+                &sub_pane_ids[i],
+                sub_pane_config,
+                path,
+                debug,
+                exec_tasks,
+                session_name,
+                window_name,
+            )?;
         }
     } else if let Some(execs) = &config.exec
         && !execs.is_empty()
@@ -315,6 +320,9 @@ fn setup_pane(
         exec_tasks.push(ExecTask {
             pane_id: pane_id.to_string(),
             commands: execs.clone(),
+            path: path.to_path_buf(),
+            session_name: session_name.to_string(),
+            window_name: window_name.to_string(),
         });
     }
 
