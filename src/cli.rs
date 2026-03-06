@@ -15,4 +15,8 @@ pub struct Args {
     /// Disable fzf and tmux (for debugging)
     #[arg(long)]
     pub headless: bool,
+
+    /// Command to run in "run mode" (internal use)
+    #[arg(long, hide = true)]
+    pub run_command: Option<String>,
 }

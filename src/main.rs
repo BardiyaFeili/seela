@@ -13,6 +13,10 @@ use crate::run::run;
 fn main() -> Result<(), Box<dyn Error>> {
     let args = cli::Args::parse();
 
+    if let Some(cmd) = args.run_command {
+        return run::run_confirm(&cmd);
+    }
+
     let config_path = config::get_config_path(args.config);
 
     if let Some(path) = config_path {

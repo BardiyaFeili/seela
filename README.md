@@ -105,6 +105,15 @@ split = "vertical"  # The children below will be side-by-side
     exec = ["git status"] # Bottom right
 ```
 
+### Special Operators
+
+You can use special operators in the `exec` list to control command execution:
+
+- **`@run <command>`**: Prompts for confirmation (`Run "command"? [Y/n]`) before executing. This is useful for dangerous commands or things you want to run manually but have ready in the buffer.
+- **`@wait <seconds>`**: Pauses execution for the specified number of seconds before moving to the next command in the list.
+
+> **Note:** All panes and windows are initialized before the execution of `@run` or `@wait` begins. However, since commands are executed sequentially, using high `@wait` times or many `@run` prompts will delay the final setup and focus of the tmux session.
+
 ## TODO
 
 - [x] Implement TOML config loading (`src/config.rs`)

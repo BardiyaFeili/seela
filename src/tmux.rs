@@ -147,10 +147,37 @@ fn create_session_from_config(
         if debug {
             println!("Executing {} command tasks...", exec_tasks.len());
         }
-        thread::sleep(Duration::from_millis(500)); // Wait for shells to be fully ready
+        thread::sleep(Duration::from_millis(500));
 
         for task in exec_tasks {
             for exec_cmd in task.commands {
+                let mut final_cmd = exec_cmd.clone();
+                let trimmed = exec_cmd.trim();
+
+                if let Some((keyword, val)) = trimmed.split_once(' ') {
+                    match keyword {
+                        "@run" => {
+                            if let Ok(current_exe) = std::env::current_exe() {
+                                final_cmd =
+                                    format!("{} --run-command {:?}", current_exe.display(), val);
+                            }
+                        }
+                        "@wait" => {
+                            if let Ok(secs) = val.parse::<u64>() {
+                                if debug {
+                                    println!(
+                                        "Waiting {secs} seconds in pane {pane_id}...",
+                                        pane_id = task.pane_id
+                                    );
+                                }
+                                thread::sleep(Duration::from_secs(secs));
+                                continue;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
                 // 1. Clear current line
                 let mut clear_cmd = Command::new("tmux");
                 clear_cmd
@@ -168,7 +195,7 @@ fn create_session_from_config(
                     .arg("-t")
                     .arg(&task.pane_id)
                     .arg("-l")
-                    .arg(&exec_cmd);
+                    .arg(&final_cmd);
                 run_cmd.status()?;
                 thread::sleep(Duration::from_millis(50));
 
@@ -181,7 +208,7 @@ fn create_session_from_config(
                     .arg("C-m");
 
                 if debug {
-                    println!("Running: {exec_cmd} in {pane_id}", pane_id = task.pane_id);
+                    println!("Running: {final_cmd} in {pane_id}", pane_id = task.pane_id);
                 }
                 enter_cmd.status()?;
 

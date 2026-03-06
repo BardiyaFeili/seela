@@ -1,7 +1,29 @@
 use crate::config::Config;
 use std::error::Error;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use walkdir::WalkDir;
+
+pub fn run_confirm(cmd: &str) -> Result<(), Box<dyn Error>> {
+    print!("Run \"{cmd}\"? [Y/n] ");
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+
+    let input = input.trim().to_lowercase();
+    if input.is_empty() || input == "y" || input == "yes" {
+        let status = Command::new("sh").arg("-c").arg(cmd).status()?;
+        if !status.success() {
+            eprintln!("Command exited with status: {}", status);
+        }
+    } else {
+        println!("Skipped.");
+    }
+
+    Ok(())
+}
 
 /// Expand ~ and return an absolute path
 fn expand_path(path: &str) -> PathBuf {
