@@ -1,7 +1,7 @@
 mod cli;
 mod config;
-mod run;
 mod fzf;
+mod run;
 mod tmux;
 
 use std::error::Error;
@@ -17,14 +17,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if let Some(path) = config_path {
         match config::Config::load(path) {
-            Ok(cfg) => run(cfg)?,
+            Ok(cfg) => run(cfg, args.debug, args.headless)?,
             Err(e) => {
                 eprintln!("Error loading config: {}", e);
                 std::process::exit(1);
             }
         }
     } else {
-        eprintln!("Error: No config file found in search paths.");
+        eprintln!("Error: No config file found in the search paths.");
         std::process::exit(1);
     }
 

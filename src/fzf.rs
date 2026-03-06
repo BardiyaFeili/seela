@@ -1,14 +1,17 @@
+use crate::config::FzfConfig;
 use std::error::Error;
 use std::io::Write;
 use std::process::{Command, Stdio};
-use crate::config::FzfConfig;
 
-pub fn select_project(projects: &[String], config: &FzfConfig) -> Result<Option<String>, Box<dyn Error>> {
+pub fn select_project(
+    projects: &[String],
+    config: &FzfConfig,
+) -> Result<Option<String>, Box<dyn Error>> {
     let input = projects.join("\n");
 
     // Build fzf command
     let mut cmd = Command::new("fzf");
-    
+
     if config.preview {
         cmd.arg("--preview").arg(&config.preview_command);
     }
@@ -19,12 +22,9 @@ pub fn select_project(projects: &[String], config: &FzfConfig) -> Result<Option<
         }
     }
 
-    let mut child = cmd
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()?;
+    let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
 
-    // Feed projects to fzf
+    // give projects to fzf
     let mut stdin = child.stdin.take().ok_or("Failed to open fzf stdin")?;
     stdin.write_all(input.as_bytes())?;
     drop(stdin);

@@ -100,15 +100,27 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
     projects
 }
 
-pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
+pub fn run(config: Config, debug: bool, headless: bool) -> Result<(), Box<dyn Error>> {
+    if debug {
+        println!("Loaded Config: {:#?}", config);
+    }
+
     let projects = find_projects(&config);
     let project_strings = projects
         .iter()
         .map(|p| p.to_string_lossy().to_string())
         .collect::<Vec<String>>();
 
+    if headless {
+        println!("Headless mode enabled. Skipping fzf and tmux.");
+        if debug {
+            println!("Found {} projects", project_strings.len());
+        }
+        return Ok(());
+    }
+
     if let Some(selected) = crate::fzf::select_project(&project_strings, &config.fzf)? {
-        crate::tmux::open_session(Path::new(&selected))?;
+        crate::tmux::open_session(Path::new(&selected), &config, debug)?;
     }
 
     Ok(())

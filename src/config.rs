@@ -8,6 +8,36 @@ pub struct Config {
     pub folders: Folders,
     #[serde(default)]
     pub fzf: FzfConfig,
+    #[serde(default)]
+    pub windows: Vec<Window>,
+    pub session: Option<Session>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Window {
+    pub name: String,
+    pub panes: Vec<Pane>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Session {
+    pub windows: Vec<String>,
+    pub window_focus: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Pane {
+    pub split: Option<SplitDirection>,
+    pub exec: Option<Vec<String>>,
+    #[serde(default)]
+    pub panes: Vec<Pane>,
+}
+
+#[derive(Debug, Deserialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum SplitDirection {
+    Horizontal,
+    Vertical,
 }
 
 #[derive(Debug, Deserialize)]
