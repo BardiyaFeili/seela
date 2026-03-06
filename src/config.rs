@@ -60,8 +60,12 @@ impl Default for FzfConfig {
 }
 
 mod defaults {
-    pub fn preview() -> bool { true }
-    pub fn preview_command() -> String { "tree -C -L 2 {}".to_string() }
+    pub fn preview() -> bool {
+        true
+    }
+    pub fn preview_command() -> String {
+        "tree -C -L 2 {}".to_string()
+    }
 }
 
 impl Config {

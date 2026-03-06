@@ -17,9 +17,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if let Some(path) = config_path {
         match config::Config::load(path) {
-            Ok(cfg) => run(cfg, args.debug, args.headless)?,
+            Ok(cfg) => run(&cfg, args.debug, args.headless)?,
             Err(e) => {
-                eprintln!("Error loading config: {}", e);
+                eprintln!("Error loading config: {e}");
                 std::process::exit(1);
             }
         }

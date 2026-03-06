@@ -13,13 +13,14 @@ pub fn open_session(path: &Path, config: &Config, debug: bool) -> Result<(), Box
         .replace('.', "_");
 
     if debug {
-        println!("Opening session: {}", session_name);
+        println!("Opening session: {session_name}");
     }
 
     let status = Command::new("tmux")
         .arg("has-session")
         .arg("-t")
         .arg(&session_name)
+        .stderr(std::process::Stdio::null())
         .status();
 
     if status.is_err() || !status.unwrap().success() {
@@ -49,14 +50,14 @@ pub fn open_session(path: &Path, config: &Config, debug: bool) -> Result<(), Box
             .arg("-t")
             .arg(&session_name)
             .status()?;
-    };
+    }
 
     Ok(())
 }
 
 fn get_command_output(mut cmd: Command, debug: bool) -> Result<String, Box<dyn Error>> {
     if debug {
-        println!("Executing for output: {:?}", cmd);
+        println!("Executing for output: {cmd:?}");
     }
     let output = cmd.output()?;
     if !output.status.success() {
@@ -146,7 +147,7 @@ fn create_session_from_config(
         if debug {
             println!("Executing {} command tasks...", exec_tasks.len());
         }
-        thread::sleep(Duration::from_millis(1000)); // Wait for shells to be fully ready
+        thread::sleep(Duration::from_millis(500)); // Wait for shells to be fully ready
 
         for task in exec_tasks {
             for exec_cmd in task.commands {
@@ -158,7 +159,7 @@ fn create_session_from_config(
                     .arg(&task.pane_id)
                     .arg("C-u");
                 clear_cmd.status()?;
-                thread::sleep(Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(50));
 
                 // 2. Send command literally
                 let mut run_cmd = Command::new("tmux");
@@ -169,7 +170,7 @@ fn create_session_from_config(
                     .arg("-l")
                     .arg(&exec_cmd);
                 run_cmd.status()?;
-                thread::sleep(Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(50));
 
                 // 3. Execute
                 let mut enter_cmd = Command::new("tmux");
@@ -180,11 +181,11 @@ fn create_session_from_config(
                     .arg("C-m");
 
                 if debug {
-                    println!("Running: {} in {}", exec_cmd, task.pane_id);
+                    println!("Running: {exec_cmd} in {pane_id}", pane_id = task.pane_id);
                 }
                 enter_cmd.status()?;
 
-                thread::sleep(Duration::from_millis(300));
+                thread::sleep(Duration::from_millis(150));
             }
         }
     }
@@ -192,12 +193,12 @@ fn create_session_from_config(
     // Focus the requested window if specified
     if let Some(focus_name) = &session_config.window_focus {
         if debug {
-            println!("Focusing window: {}", focus_name);
+            println!("Focusing window: {focus_name}");
         }
         Command::new("tmux")
             .arg("select-window")
             .arg("-t")
-            .arg(format!("{}:{}", session_name, focus_name))
+            .arg(format!("{session_name}:{focus_name}"))
             .status()?;
     }
 
@@ -240,13 +241,13 @@ fn setup_pane(
         for (i, sub_pane_config) in config.panes.iter().enumerate() {
             setup_pane(&sub_pane_ids[i], sub_pane_config, path, debug, exec_tasks)?;
         }
-    } else if let Some(execs) = &config.exec {
-        if !execs.is_empty() {
-            exec_tasks.push(ExecTask {
-                pane_id: pane_id.to_string(),
-                commands: execs.clone(),
-            });
-        }
+    } else if let Some(execs) = &config.exec
+        && !execs.is_empty()
+    {
+        exec_tasks.push(ExecTask {
+            pane_id: pane_id.to_string(),
+            commands: execs.clone(),
+        });
     }
 
     Ok(())

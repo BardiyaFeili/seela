@@ -275,7 +275,7 @@ dependencies = [
 
 [[package]]
 name = "seela"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "clap",
  "dirs 5.0.1",

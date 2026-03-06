@@ -83,8 +83,8 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
                 let is_parent_of_search = search_dirs.iter().any(|s| s.starts_with(path));
                 if !is_parent_of_search {
                     it.skip_current_dir();
-                    continue;
                 }
+                continue;
             }
 
             if path.join(".git").exists() {
@@ -100,12 +100,12 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
     projects
 }
 
-pub fn run(config: Config, debug: bool, headless: bool) -> Result<(), Box<dyn Error>> {
+pub fn run(config: &Config, debug: bool, headless: bool) -> Result<(), Box<dyn Error>> {
     if debug {
-        println!("Loaded Config: {:#?}", config);
+        println!("Loaded Config: {config:#?}");
     }
 
-    let projects = find_projects(&config);
+    let projects = find_projects(config);
     let project_strings = projects
         .iter()
         .map(|p| p.to_string_lossy().to_string())
@@ -120,7 +120,7 @@ pub fn run(config: Config, debug: bool, headless: bool) -> Result<(), Box<dyn Er
     }
 
     if let Some(selected) = crate::fzf::select_project(&project_strings, &config.fzf)? {
-        crate::tmux::open_session(Path::new(&selected), &config, debug)?;
+        crate::tmux::open_session(Path::new(&selected), config, debug)?;
     }
 
     Ok(())
