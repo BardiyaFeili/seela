@@ -72,8 +72,6 @@ window_focus = "editor"
 
 ### Window Layouts
 
-Each window can have a list of panes. By default, multiple top-level panes in a window are split vertically (side-by-side).
-
 ```toml
 [[windows]]
 name = "editor"
