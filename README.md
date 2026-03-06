@@ -25,15 +25,16 @@ Or specify a custom config path:
 seela --config path/to/config.toml
 ```
 
-## Tmux Integration
+### Tmux Integration
 
-For the best experience, you can bind `seela` to a key in your `tmux.conf` to open it in a popup
+For the best experience, you can bind `seela` to a key in your `tmux.conf` to
+open it in a popup
 
 ```tmux
 bind g display-popup -w 80% -h 80% -E "seela"
 ```
 
-### Configuration
+## Configuration
 
 `seela` looks for a config file in the following order:
 
@@ -56,13 +57,16 @@ preview_command = "tree -C -L 2 {}"
 fzf_opts = "--height 40% --layout=reverse"
 ```
 
-## Layout Configuration
+### Layout Configuration
 
-`seela` lets you define exactly how your tmux session should look. You can set up multiple windows, complex pane splits, and even run a list of commands automatically when a pane opens.
+`seela` lets you define exactly how your tmux session should look. You can set
+up multiple windows, complex pane splits, and even run a list of commands
+automatically when a pane opens.
 
-### Sessions and Windows
+#### Session
 
-A session is just a list of window names. You can also tell `seela` which window to focus on once everything is set up.
+A session is just a list of window names. You can also tell `seela` which
+window to focus on once everything is set up.
 
 ```toml
 [session]
@@ -70,7 +74,7 @@ windows = ["editor", "server", "terminal"]
 window_focus = "editor"
 ```
 
-### Window Layouts
+#### Window Layouts
 
 ```toml
 [[windows]]
@@ -79,11 +83,14 @@ name = "editor"
 exec = ["nvim"]
 ```
 
-### Deeply Nested Panes
+#### Deeply Nested Panes
 
-You can nest panes as deep as you want to create any layout. Use `split = "vertical"` for side-by-side panes and `split = "horizontal"` for top-to-bottom panes.
+You can nest panes as deep as you want to create any layout. Use
+`split = "vertical"` for side-by-side panes and `split = "horizontal"` for
+top-to-bottom panes.
 
-The `split` property on a "parent" pane tells `seela` how to lay out its "children":
+The `split` property on a "parent" pane tells `seela` how to lay out its
+"children":
 
 ```toml
 [[windows]]
@@ -105,14 +112,22 @@ split = "vertical"  # The children below will be side-by-side
     exec = ["git status"] # Bottom right
 ```
 
-### Special Operators
+#### Special Operators
 
 You can use special operators in the `exec` list to control command execution:
 
-- **`@run <command>`**: Prompts for confirmation (`Run "command"? [Y/n]`) before executing. This is useful for dangerous commands or things you want to run manually but have ready in the buffer.
-- **`@wait <seconds>`**: Pauses execution for the specified number of seconds before moving to the next command in the list.
+- **`@run <command>`**: Prompts for confirmation (`Run "command"? [Y/n]`) before
+  executing.
+- **`@wait <seconds>`**: Pauses execution for the specified number of seconds.
+- **`@wait-milli <ms>`** (alias **`@wait-ms`**): Pauses execution for the
+  specified number of milliseconds.
+- **`@send-key <key>`** (alias **`@sk`**): Sends a raw key or key sequence to
+  the pane (e.g., `Enter`, `Space`, `C-c`, `C-l`).
 
-> **Note:** All panes and windows are initialized before the execution of `@run` or `@wait` begins. However, since commands are executed sequentially, using high `@wait` times or many `@run` prompts will delay the final setup and focus of the tmux session.
+> **Note:** All panes and windows are initialized before the execution of
+> `@run` or `@wait` begins. However, since commands are executed sequentially,
+> using high `@wait` times or many `@run` prompts will delay the final setup
+> and focus of the tmux session.
 
 ## TODO
 

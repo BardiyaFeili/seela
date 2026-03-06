@@ -142,23 +142,28 @@ fn create_session_from_config(
             }
         }
     }
+
     // Run all execution tasks after layout is complete
     if !exec_tasks.is_empty() {
         if debug {
             println!("Executing {} command tasks in parallel...", exec_tasks.len());
         }
-        thread::sleep(Duration::from_millis(500));
+        // Initial wait for tmux and shells to settle
+        thread::sleep(Duration::from_millis(1000));
 
         thread::scope(|s| {
             for task in exec_tasks {
                 s.spawn(move || {
+                    // Extra per-pane settle time
+                    thread::sleep(Duration::from_millis(250));
+
                     for exec_cmd in task.commands {
                         let mut final_cmd = exec_cmd.clone();
                         let trimmed = exec_cmd.trim();
 
                         if let Some((keyword, val)) = trimmed.split_once(' ') {
                             match keyword {
-                                "@run" => {
+                                "@run" | "@src/run.rs" => {
                                     if let Ok(current_exe) = std::env::current_exe() {
                                         final_cmd = format!(
                                             "{} --run-command {:?}",
@@ -179,6 +184,35 @@ fn create_session_from_config(
                                         continue;
                                     }
                                 }
+                                "@wait-milli" | "@wait-ms" => {
+                                    if let Ok(ms) = val.parse::<u64>() {
+                                        if debug {
+                                            println!(
+                                                "Waiting {ms}ms in pane {pane_id}...",
+                                                pane_id = task.pane_id
+                                            );
+                                        }
+                                        thread::sleep(Duration::from_millis(ms));
+                                        continue;
+                                    }
+                                }
+                                "@send-key" | "@sk" => {
+                                    if debug {
+                                        println!(
+                                            "Sending key {val} to pane {pane_id}...",
+                                            pane_id = task.pane_id
+                                        );
+                                    }
+                                    thread::sleep(Duration::from_millis(250));
+                                    let mut key_cmd = Command::new("tmux");
+                                    key_cmd
+                                        .arg("send-keys")
+                                        .arg("-t")
+                                        .arg(&task.pane_id)
+                                        .arg(val);
+                                    let _ = key_cmd.status();
+                                    continue;
+                                }
                                 _ => {}
                             }
                         }
@@ -191,7 +225,7 @@ fn create_session_from_config(
                             .arg(&task.pane_id)
                             .arg("C-u");
                         let _ = clear_cmd.status();
-                        thread::sleep(Duration::from_millis(50));
+                        thread::sleep(Duration::from_millis(100));
 
                         // 2. Send command literally
                         let mut run_cmd = Command::new("tmux");
@@ -202,7 +236,7 @@ fn create_session_from_config(
                             .arg("-l")
                             .arg(&final_cmd);
                         let _ = run_cmd.status();
-                        thread::sleep(Duration::from_millis(50));
+                        thread::sleep(Duration::from_millis(100));
 
                         // 3. Execute
                         let mut enter_cmd = Command::new("tmux");
@@ -217,7 +251,7 @@ fn create_session_from_config(
                         }
                         let _ = enter_cmd.status();
 
-                        thread::sleep(Duration::from_millis(150));
+                        thread::sleep(Duration::from_millis(250));
                     }
                 });
             }
