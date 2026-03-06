@@ -27,7 +27,7 @@ seela --config path/to/config.toml
 
 ## Tmux Integration
 
-For the best experience, you can bind `seela` to a key in your `tmux.conf` to open it in a popup:
+For the best experience, you can bind `seela` to a key in your `tmux.conf` to open it in a popup
 
 ```tmux
 bind g display-popup -w 80% -h 80% -E "seela"
