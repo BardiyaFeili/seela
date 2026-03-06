@@ -31,8 +31,11 @@ fn expand_path(path: &str) -> PathBuf {
     PathBuf::from(expanded.to_string())
 }
 
+use rayon::prelude::*;
+use std::sync::Mutex;
+
 pub fn find_projects(config: &Config) -> Vec<PathBuf> {
-    let mut projects = Vec::new();
+    let projects = Mutex::new(Vec::new());
 
     let search_dirs: Vec<PathBuf> = config
         .folders
@@ -59,15 +62,18 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
 
     // 1. Add force_include folders immediately if they exist
     for path in &force_include {
-        if path.exists() && !projects.contains(path) {
-            projects.push(path.clone());
+        if path.exists() {
+            let mut p = projects.lock().unwrap();
+            if !p.contains(path) {
+                p.push(path.clone());
+            }
         }
     }
 
-    // 2. Search in search_dirs
-    for root in &search_dirs {
+    // 2. Search in search_dirs in parallel
+    search_dirs.par_iter().for_each(|root| {
         if !root.exists() {
-            continue;
+            return;
         }
 
         let mut it = WalkDir::new(root).into_iter();
@@ -110,16 +116,18 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
             }
 
             if path.join(".git").exists() {
-                if !projects.contains(&path.to_path_buf()) {
-                    projects.push(path.to_path_buf());
+                let path_buf = path.to_path_buf();
+                let mut p = projects.lock().unwrap();
+                if !p.contains(&path_buf) {
+                    p.push(path_buf);
                 }
                 it.skip_current_dir();
                 continue;
             }
         }
-    }
+    });
 
-    projects
+    projects.into_inner().unwrap()
 }
 
 pub fn run(config: &Config, debug: bool, headless: bool) -> Result<(), Box<dyn Error>> {

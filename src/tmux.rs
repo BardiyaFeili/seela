@@ -145,76 +145,83 @@ fn create_session_from_config(
     // Run all execution tasks after layout is complete
     if !exec_tasks.is_empty() {
         if debug {
-            println!("Executing {} command tasks...", exec_tasks.len());
+            println!("Executing {} command tasks in parallel...", exec_tasks.len());
         }
         thread::sleep(Duration::from_millis(500));
 
-        for task in exec_tasks {
-            for exec_cmd in task.commands {
-                let mut final_cmd = exec_cmd.clone();
-                let trimmed = exec_cmd.trim();
+        thread::scope(|s| {
+            for task in exec_tasks {
+                s.spawn(move || {
+                    for exec_cmd in task.commands {
+                        let mut final_cmd = exec_cmd.clone();
+                        let trimmed = exec_cmd.trim();
 
-                if let Some((keyword, val)) = trimmed.split_once(' ') {
-                    match keyword {
-                        "@run" => {
-                            if let Ok(current_exe) = std::env::current_exe() {
-                                final_cmd =
-                                    format!("{} --run-command {:?}", current_exe.display(), val);
-                            }
-                        }
-                        "@wait" => {
-                            if let Ok(secs) = val.parse::<u64>() {
-                                if debug {
-                                    println!(
-                                        "Waiting {secs} seconds in pane {pane_id}...",
-                                        pane_id = task.pane_id
-                                    );
+                        if let Some((keyword, val)) = trimmed.split_once(' ') {
+                            match keyword {
+                                "@run" => {
+                                    if let Ok(current_exe) = std::env::current_exe() {
+                                        final_cmd = format!(
+                                            "{} --run-command {:?}",
+                                            current_exe.display(),
+                                            val
+                                        );
+                                    }
                                 }
-                                thread::sleep(Duration::from_secs(secs));
-                                continue;
+                                "@wait" => {
+                                    if let Ok(secs) = val.parse::<u64>() {
+                                        if debug {
+                                            println!(
+                                                "Waiting {secs} seconds in pane {pane_id}...",
+                                                pane_id = task.pane_id
+                                            );
+                                        }
+                                        thread::sleep(Duration::from_secs(secs));
+                                        continue;
+                                    }
+                                }
+                                _ => {}
                             }
                         }
-                        _ => {}
+
+                        // 1. Clear current line
+                        let mut clear_cmd = Command::new("tmux");
+                        clear_cmd
+                            .arg("send-keys")
+                            .arg("-t")
+                            .arg(&task.pane_id)
+                            .arg("C-u");
+                        let _ = clear_cmd.status();
+                        thread::sleep(Duration::from_millis(50));
+
+                        // 2. Send command literally
+                        let mut run_cmd = Command::new("tmux");
+                        run_cmd
+                            .arg("send-keys")
+                            .arg("-t")
+                            .arg(&task.pane_id)
+                            .arg("-l")
+                            .arg(&final_cmd);
+                        let _ = run_cmd.status();
+                        thread::sleep(Duration::from_millis(50));
+
+                        // 3. Execute
+                        let mut enter_cmd = Command::new("tmux");
+                        enter_cmd
+                            .arg("send-keys")
+                            .arg("-t")
+                            .arg(&task.pane_id)
+                            .arg("C-m");
+
+                        if debug {
+                            println!("Running: {final_cmd} in {pane_id}", pane_id = task.pane_id);
+                        }
+                        let _ = enter_cmd.status();
+
+                        thread::sleep(Duration::from_millis(150));
                     }
-                }
-
-                // 1. Clear current line
-                let mut clear_cmd = Command::new("tmux");
-                clear_cmd
-                    .arg("send-keys")
-                    .arg("-t")
-                    .arg(&task.pane_id)
-                    .arg("C-u");
-                clear_cmd.status()?;
-                thread::sleep(Duration::from_millis(50));
-
-                // 2. Send command literally
-                let mut run_cmd = Command::new("tmux");
-                run_cmd
-                    .arg("send-keys")
-                    .arg("-t")
-                    .arg(&task.pane_id)
-                    .arg("-l")
-                    .arg(&final_cmd);
-                run_cmd.status()?;
-                thread::sleep(Duration::from_millis(50));
-
-                // 3. Execute
-                let mut enter_cmd = Command::new("tmux");
-                enter_cmd
-                    .arg("send-keys")
-                    .arg("-t")
-                    .arg(&task.pane_id)
-                    .arg("C-m");
-
-                if debug {
-                    println!("Running: {final_cmd} in {pane_id}", pane_id = task.pane_id);
-                }
-                enter_cmd.status()?;
-
-                thread::sleep(Duration::from_millis(150));
+                });
             }
-        }
+        });
     }
 
     // Focus the requested window if specified
