@@ -168,7 +168,7 @@ You can use special operators in the `exec` list to control command execution:
 
 > [!NOTE]
 > All panes need to be initialized before you you are attached to the session.
-> This means using high `@wait` will the app just stall for that period.
+> This means using high `@wait` will make the app just stall for that period.
 
 ## TODO
 
