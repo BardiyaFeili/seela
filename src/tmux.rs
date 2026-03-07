@@ -23,8 +23,13 @@ pub fn open_session(path: &Path, config: &Config, debug: bool) -> Result<(), Box
         .stderr(std::process::Stdio::null())
         .status();
 
-    if status.is_err() || !status.unwrap().success() {
-        if let Some(session_config) = &config.session {
+    let session_exists = match status {
+        Ok(s) => s.success(),
+        Err(_) => false,
+    };
+
+    if !session_exists {
+        if let Some(session_config) = config.get_session_for_path(path) {
             create_session_from_config(&session_name, path, config, session_config, debug)?;
         } else {
             let mut cmd = Command::new("tmux");

@@ -1,28 +1,48 @@
 use serde::Deserialize;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub folders: Folders,
     #[serde(default)]
     pub fzf: FzfConfig,
     #[serde(default)]
     pub windows: Vec<Window>,
-    pub session: Option<Session>,
+    #[serde(default)]
+    pub custom_sessions: Vec<Session>,
+    pub default_session: Option<Session>,
+    #[serde(default)]
+    pub project_types: Vec<ProjectType>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ProjectType {
+    pub name: String,
+    pub files: Vec<String>,
+}
+
+impl ProjectType {
+    pub fn matches(&self, path: &Path) -> bool {
+        self.files.iter().any(|f| path.join(f).exists())
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Session {
+    #[allow(dead_code)]
+    pub name: Option<String>,
+    pub paths: Option<Vec<String>>,
+    pub types: Option<Vec<String>>,
+    pub windows: Vec<String>,
+    pub window_focus: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Window {
     pub name: String,
     pub panes: Vec<Pane>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct Session {
-    pub windows: Vec<String>,
-    pub window_focus: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -40,7 +60,7 @@ pub enum SplitDirection {
     Vertical,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct FzfConfig {
     #[serde(default = "defaults::preview")]
     pub preview: bool,
@@ -68,15 +88,65 @@ mod defaults {
     }
 }
 
+pub fn expand_path(path: &str) -> PathBuf {
+    let expanded = shellexpand::tilde(path);
+    PathBuf::from(expanded.to_string())
+}
+
 impl Config {
     pub fn load(path: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
         let content = fs::read_to_string(path)?;
         let config: Config = toml::from_str(&content)?;
         Ok(config)
     }
+
+    pub fn get_session_for_path(&self, path: &Path) -> Option<&Session> {
+        for session in &self.custom_sessions {
+            if let Some(paths) = &session.paths {
+                for p in paths {
+                    let expanded = expand_path(p);
+                    if path == expanded {
+                        return Some(session);
+                    }
+                }
+            }
+        }
+
+        for session in &self.custom_sessions {
+            if let Some(types) = &session.types {
+                for t_name in types {
+                    if let Some(pt) = self.project_types.iter().find(|pt| &pt.name == t_name)
+                        && pt.matches(path)
+                    {
+                        return Some(session);
+                    }
+                }
+            }
+        }
+
+        let mut best_match: Option<&Session> = None;
+        let mut longest_prefix = 0;
+
+        for session in &self.custom_sessions {
+            if let Some(paths) = &session.paths {
+                for p in paths {
+                    let expanded = expand_path(p);
+                    if path.starts_with(&expanded) {
+                        let len = expanded.as_os_str().len();
+                        if len > longest_prefix {
+                            longest_prefix = len;
+                            best_match = Some(session);
+                        }
+                    }
+                }
+            }
+        }
+
+        best_match.or(self.default_session.as_ref())
+    }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[allow(dead_code)]
 pub struct Folders {
     pub search_dirs: Vec<String>,
@@ -85,12 +155,10 @@ pub struct Folders {
 }
 
 pub fn get_config_path(cli_path: Option<PathBuf>) -> Option<PathBuf> {
-    // CLI given path
     if let Some(path) = cli_path.filter(|p| p.exists()) {
         return Some(path);
     }
 
-    // $SEELA_CONFIG_HOME/config.toml
     if let Ok(seela_home) = env::var("SEELA_CONFIG_HOME") {
         let path = PathBuf::from(seela_home).join("config.toml");
         if path.exists() {
@@ -98,7 +166,6 @@ pub fn get_config_path(cli_path: Option<PathBuf>) -> Option<PathBuf> {
         }
     }
 
-    // $XDG_CONFIG_HOME/seela/config.toml
     if let Ok(xdg_home) = env::var("XDG_CONFIG_HOME") {
         let path = PathBuf::from(xdg_home).join("seela/config.toml");
         if path.exists() {
@@ -106,7 +173,6 @@ pub fn get_config_path(cli_path: Option<PathBuf>) -> Option<PathBuf> {
         }
     }
 
-    // ~/.config/seela/config.toml
     if let Some(home) = dirs::home_dir() {
         let path = home.join(".config/seela/config.toml");
         if path.exists() {

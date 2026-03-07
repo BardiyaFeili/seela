@@ -1,14 +1,8 @@
-mod cli;
-mod config;
-mod fzf;
-mod run;
-mod tmux;
-
 use std::error::Error;
-
 use clap::Parser;
-
-use crate::run::run;
+use seela::cli;
+use seela::config;
+use seela::run;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = cli::Args::parse();
@@ -21,7 +15,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if let Some(path) = config_path {
         match config::Config::load(path) {
-            Ok(cfg) => run(&cfg, args.debug, args.headless)?,
+            Ok(cfg) => run::run(&cfg, args.debug, args.headless)?,
             Err(e) => {
                 eprintln!("Error loading config: {e}");
                 std::process::exit(1);

@@ -7,9 +7,6 @@ pub fn select_project(
     projects: &[String],
     config: &FzfConfig,
 ) -> Result<Option<String>, Box<dyn Error>> {
-    let input = projects.join("\n");
-
-    // Build fzf command
     let mut cmd = Command::new("fzf");
 
     if config.preview {
@@ -24,9 +21,10 @@ pub fn select_project(
 
     let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
 
-    // give projects to fzf
     let mut stdin = child.stdin.take().ok_or("Failed to open fzf stdin")?;
-    stdin.write_all(input.as_bytes())?;
+    for project in projects {
+        writeln!(stdin, "{}", project)?;
+    }
     drop(stdin);
 
     let output = child.wait_with_output()?;

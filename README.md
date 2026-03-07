@@ -13,7 +13,7 @@ cargo build --release
 
 ## Usage
 
-Run the binary to start searching for projects:
+Run the binary
 
 ```bash
 seela
@@ -27,8 +27,7 @@ seela --config path/to/config.toml
 
 ### Tmux Integration
 
-For the best experience, you can bind `seela` to a key in your `tmux.conf` to
-open it in a popup
+You can use `seela` in tmux like this
 
 ```tmux
 bind g display-popup -w 80% -h 80% -E "seela"
@@ -59,19 +58,57 @@ fzf_opts = "--height 40% --layout=reverse"
 
 ### Layout Configuration
 
-`seela` lets you define exactly how your tmux session should look. You can set
-up multiple windows, complex pane splits, and even run a list of commands
-automatically when a pane opens.
+You can configure your tmux session's layout.
+Based on the path of the project or its type.
 
-#### Session
+#### Default Session
 
-A session is just a list of window names. You can also tell `seela` which
-window to focus on once everything is set up.
+`default_session` is for projects that do not match any path or type.
 
 ```toml
-[session]
-windows = ["editor", "server", "terminal"]
+[default_session]
+windows = ["editor", "terminal"]
 window_focus = "editor"
+```
+
+#### Custom Sessions
+
+You can also define `custom_sessions`
+Which can match a project based on the path or type.
+
+The projects will math the session based on this order:
+
+1. Exact Path
+2. Type Match
+3. Partial Path Match (The closest match will be chosen)
+4. Default Session
+
+```toml
+[[custom_sessions]]
+name = "Rust Development"
+types = ["rust"]  # Match projects of type 'rust'
+windows = ["editor", "bacon"]
+window_focus = "editor"
+
+[[custom_sessions]]
+name = "Web Development"
+paths = ["~/projects/web"] # Match by path prefix
+types = ["web"]            # OR match by project type
+windows = ["editor", "server", "logs"]
+```
+
+#### Project Types
+
+You can define your types like this.
+
+```toml
+[[project_types]]
+name = "rust"
+files = ["Cargo.toml"]
+
+[[project_types]]
+name = "web"
+files = ["tsconfig.json", "package.json", "node_modules"]
 ```
 
 #### Window Layouts
@@ -85,9 +122,8 @@ exec = ["nvim"]
 
 #### Deeply Nested Panes
 
-You can nest panes as deep as you want to create any layout. Use
-`split = "vertical"` for side-by-side panes and `split = "horizontal"` for
-top-to-bottom panes.
+The panes are nest-able Use `split = "vertical"` for side-by-side panes
+and `split = "horizontal"` for top-to-bottom panes.
 
 The `split` property on a "parent" pane tells `seela` how to lay out its
 "children":
@@ -103,8 +139,8 @@ split = "vertical"  # The children below will be side-by-side
   exec = ["nvim"]   # Left side
 
   [[windows.panes.panes]]
-  split = "horizontal" # Right side will be split top-to-bottom
 
+  split = "horizontal" # Right side will be split top-to-bottom
     [[windows.panes.panes.panes]]
     exec = ["ls -la"] # Top right
 
@@ -130,10 +166,9 @@ You can use special operators in the `exec` list to control command execution:
 - **`@send-key <key>`** (alias **`@sk`**): Sends a raw key or key sequence to
   the pane (e.g., `Enter`, `Space`, `C-c`, `C-l`).
 
-> **Note:** All panes and windows are initialized before the execution of
-> operators begins. However, since commands are executed sequentially in
-> parallel threads per pane, using high `@wait` times or many `@confirm`
-> prompts will delay the final focus of the tmux session.
+> [!NOTE]
+> All panes need to be initialized before you you are attached to the session.
+> This means using high `@wait` will the app just stall for that period.
 
 ## TODO
 
@@ -142,4 +177,5 @@ You can use special operators in the `exec` list to control command execution:
 - [x] `fzf` integration for project selection
 - [x] Basic tmux session opening
 - [x] Complex window/pane layout support
-- [ ] Different layouts based on project types or paths
+- [x] Different layouts based on project paths
+- [x] Custom and inbuilt types and layout based on the type

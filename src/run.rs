@@ -1,4 +1,5 @@
-use crate::config::Config;
+use crate::config::{Config, expand_path};
+use rayon::prelude::*;
 use std::error::Error;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -25,18 +26,7 @@ pub fn run_confirm(cmd: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Expand ~ and return an absolute path
-fn expand_path(path: &str) -> PathBuf {
-    let expanded = shellexpand::tilde(path);
-    PathBuf::from(expanded.to_string())
-}
-
-use rayon::prelude::*;
-use std::sync::Mutex;
-
 pub fn find_projects(config: &Config) -> Vec<PathBuf> {
-    let projects = Mutex::new(Vec::new());
-
     let search_dirs: Vec<PathBuf> = config
         .folders
         .search_dirs
@@ -60,72 +50,72 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
         .map(|s| expand_path(s))
         .collect();
 
-    for path in &force_include {
-        if path.exists() {
-            let mut p = projects.lock().unwrap();
-            if !p.contains(path) {
-                p.push(path.clone());
+    let mut projects: Vec<PathBuf> = force_include
+        .into_iter()
+        .filter(|p| p.exists())
+        .collect();
+
+    let discovered: Vec<PathBuf> = search_dirs
+        .par_iter()
+        .filter(|root| root.exists())
+        .flat_map(|root| {
+            let mut it = WalkDir::new(root).into_iter();
+            let mut results = Vec::new();
+
+            loop {
+                let entry = match it.next() {
+                    None => break,
+                    Some(Ok(entry)) => entry,
+                    Some(Err(_)) => continue,
+                };
+
+                let path = entry.path();
+                if !entry.file_type().is_dir() {
+                    continue;
+                }
+
+                let mut longest_rule_len = 0;
+                let mut is_excluded = false;
+
+                for ex in &exclude_paths {
+                    if path.starts_with(ex) && ex.as_os_str().len() > longest_rule_len {
+                        longest_rule_len = ex.as_os_str().len();
+                        is_excluded = true;
+                    }
+                }
+
+                for s in &search_dirs {
+                    if path.starts_with(s) && s.as_os_str().len() >= longest_rule_len {
+                        longest_rule_len = s.as_os_str().len();
+                        is_excluded = false;
+                    }
+                }
+
+                if is_excluded {
+                    let is_parent_of_search = search_dirs.iter().any(|s| s.starts_with(path));
+                    if !is_parent_of_search {
+                        it.skip_current_dir();
+                    }
+                    continue;
+                }
+
+                if path.join(".git").exists() {
+                    results.push(path.to_path_buf());
+                    it.skip_current_dir();
+                    continue;
+                }
             }
+            results
+        })
+        .collect();
+
+    for p in discovered {
+        if !projects.contains(&p) {
+            projects.push(p);
         }
     }
 
-    search_dirs.par_iter().for_each(|root| {
-        if !root.exists() {
-            return;
-        }
-
-        let mut it = WalkDir::new(root).into_iter();
-
-        loop {
-            let entry = match it.next() {
-                None => break,
-                Some(Ok(entry)) => entry,
-                Some(Err(_)) => continue,
-            };
-
-            let path = entry.path();
-            if !entry.file_type().is_dir() {
-                continue;
-            }
-
-            let mut longest_rule_len = 0;
-            let mut is_excluded = false;
-
-            for ex in &exclude_paths {
-                if path.starts_with(ex) && ex.as_os_str().len() > longest_rule_len {
-                    longest_rule_len = ex.as_os_str().len();
-                    is_excluded = true;
-                }
-            }
-
-            for s in &search_dirs {
-                if path.starts_with(s) && s.as_os_str().len() >= longest_rule_len {
-                    longest_rule_len = s.as_os_str().len();
-                    is_excluded = false;
-                }
-            }
-
-            if is_excluded {
-                let is_parent_of_search = search_dirs.iter().any(|s| s.starts_with(path));
-                if !is_parent_of_search {
-                    it.skip_current_dir();
-                }
-                continue;
-            }
-
-            if path.join(".git").exists() {
-                let path_buf = path.to_path_buf();
-                let mut p = projects.lock().unwrap();
-                if !p.contains(&path_buf) {
-                    p.push(path_buf);
-                }
-                it.skip_current_dir();
-                continue;
-            }
-        }
-    });
-
-    projects.into_inner().unwrap()
+    projects
 }
 
 pub fn run(config: &Config, debug: bool, headless: bool) -> Result<(), Box<dyn Error>> {
