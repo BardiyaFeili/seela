@@ -139,8 +139,8 @@ split = "vertical"  # The children below will be side-by-side
   exec = ["nvim"]   # Left side
 
   [[windows.panes.panes]]
-
   split = "horizontal" # Right side will be split top-to-bottom
+
     [[windows.panes.panes.panes]]
     exec = ["ls -la"] # Top right
 
