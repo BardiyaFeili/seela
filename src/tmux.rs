@@ -3,9 +3,10 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub fn open_session(path: &Path, config: &Config, debug: bool) -> Result<(), Box<dyn Error>> {
+    let total_start = Instant::now();
     let session_name = path
         .file_name()
         .ok_or("Could not get directory name")?
@@ -57,14 +58,20 @@ pub fn open_session(path: &Path, config: &Config, debug: bool) -> Result<(), Box
             .status()?;
     }
 
+    if debug {
+        println!("Total open_session took: {:?}", total_start.elapsed());
+    }
+
     Ok(())
 }
 
 fn get_command_output(mut cmd: Command, debug: bool) -> Result<String, Box<dyn Error>> {
-    if debug {
-        println!("Executing for output: {cmd:?}");
-    }
+    let start = Instant::now();
+    let cmd_debug_info = if debug { format!("{:?}", cmd) } else { String::new() };
     let output = cmd.output()?;
+    if debug {
+        println!("Command {} took: {:?}", cmd_debug_info, start.elapsed());
+    }
     if !output.status.success() {
         return Err(format!(
             "Tmux command failed: {:?}",
@@ -91,6 +98,7 @@ fn create_session_from_config(
     debug: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut exec_tasks = Vec::new();
+    let structure_start = Instant::now();
 
     for (win_idx, window_name) in session_config.windows.iter().enumerate() {
         let window_config = config.windows.iter().find(|w| &w.name == window_name);
@@ -159,13 +167,27 @@ fn create_session_from_config(
         }
     }
 
+    if debug {
+        println!(
+            "Window/Pane structure creation took: {:?}",
+            structure_start.elapsed()
+        );
+    }
+
     if !exec_tasks.is_empty() {
+        let exec_start = Instant::now();
+        if debug {
+            println!("Waiting 600ms for tmux to stabilize...");
+        }
         thread::sleep(Duration::from_millis(600));
 
         thread::scope(|s| {
             for task in exec_tasks {
                 s.spawn(move || {
+                    let task_start = Instant::now();
+                    let pane_id = task.pane_id.clone();
                     for (cmd_idx, exec_cmd) in task.commands.iter().enumerate() {
+                        let cmd_exec_start = Instant::now();
                         let mut final_cmd = exec_cmd.clone();
                         let trimmed = exec_cmd.trim();
 
@@ -256,10 +278,20 @@ fn create_session_from_config(
                         let _ = enter_cmd.status();
 
                         thread::sleep(Duration::from_millis(100));
+                        if debug {
+                            println!("Command '{}' in pane {} took: {:?}", exec_cmd, pane_id, cmd_exec_start.elapsed());
+                        }
+                    }
+                    if debug {
+                        println!("Task for pane {} total took: {:?}", pane_id, task_start.elapsed());
                     }
                 });
             }
         });
+
+        if debug {
+            println!("Execution tasks took: {:?}", exec_start.elapsed());
+        }
     }
 
     if let Some(focus_name) = &session_config.window_focus {

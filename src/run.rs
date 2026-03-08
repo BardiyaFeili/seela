@@ -50,10 +50,7 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
         .map(|s| expand_path(s))
         .collect();
 
-    let mut projects: Vec<PathBuf> = force_include
-        .into_iter()
-        .filter(|p| p.exists())
-        .collect();
+    let mut projects: Vec<PathBuf> = force_include.into_iter().filter(|p| p.exists()).collect();
 
     let discovered: Vec<PathBuf> = search_dirs
         .par_iter()
