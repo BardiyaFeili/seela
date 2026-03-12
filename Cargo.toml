@@ -5,6 +5,11 @@ edition = "2024"
 license = "MIT"
 authors = ["Bardiya Feili"]
 description = "A simple tmux session manager."
+repository = "https://github.com/BardiyaFeili/seela"
+homepage = "https://github.com/BardiyaFeili/seela"
+documentation = "https://github.com/BardiyaFeili/seela"
+keywords = ["tmux", "fzf", "session-manager", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
