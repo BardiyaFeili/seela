@@ -3,11 +3,23 @@
 A simple tmux session manager. Lets you fuzzy-find your projects,
 and handles the window/pane layout based on your config.
 
-## How to build
+## Installation
 
-You can build using cargo
+You can install `seela` directly from [crates.io](https://crates.io/crates/seela):
 
 ```bash
+cargo install seela
+```
+
+Make sure that your cargo bin directory (usually `~/.cargo/bin`) is in your `PATH`.
+
+### Build from source
+
+If you prefer to build from source:
+
+```bash
+git clone https://github.com/BardiyaFeili/seela.git
+cd seela
 cargo build --release
 ```
 
