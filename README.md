@@ -54,7 +54,22 @@ force_include = ["~/special-project"]
 preview = true
 preview_command = "tree -C -L 2 {}"
 fzf_opts = "--height 40% --layout=reverse"
+
+[tmux]
+# Time to wait for tmux to stabilize before sending commands (ms)
+startup_delay_ms = 1000
+# Delay between keys and minor actions (ms)
+key_delay_ms = 100
+# Delay after major actions like Enter or C-c (ms)
+action_delay_ms = 200
 ```
+
+> [!TIP]
+> If your `exec` commands are not running correctly (e.g., being sent before the
+> shell is ready), try increasing the values in the `[tmux]` section.
+> Different operating systems, shells, and hardware may require different
+> timings to ensure commands are processed correctly.
+
 
 ### Layout Configuration
 
@@ -126,7 +141,8 @@ The panes are nest-able Use `split = "vertical"` for side-by-side panes
 and `split = "horizontal"` for top-to-bottom panes.
 
 The `split` property on a "parent" pane tells `seela` how to lay out its
-"children":
+"children". You can use the `ratio` property (a float) to define proportional
+sizes for panes. If omitted, panes share the available space equally.
 
 ```toml
 [[windows]]
@@ -136,16 +152,20 @@ name = "dev"
 split = "vertical"  # The children below will be side-by-side
 
   [[windows.panes.panes]]
-  exec = ["nvim"]   # Left side
+  exec = ["nvim"]
+  ratio = 0.7       # 70% width
 
   [[windows.panes.panes]]
-  split = "horizontal" # Right side will be split top-to-bottom
+  split = "horizontal"
+  ratio = 0.3       # 30% width
 
     [[windows.panes.panes.panes]]
-    exec = ["ls -la"] # Top right
+    exec = ["ls -la"]
+    ratio = 0.4      # 40% height of the 30% width
 
     [[windows.panes.panes.panes]]
-    exec = ["git status"] # Bottom right
+    exec = ["git status"]
+    ratio = 0.6      # 60% height of the 30% width
 ```
 
 #### Special Operators

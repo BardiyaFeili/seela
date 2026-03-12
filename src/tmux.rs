@@ -125,16 +125,23 @@ fn create_session_from_config(
         };
 
         if let Some(wc) = window_config {
-            let mut pane_ids = Vec::new();
-            pane_ids.push(root_pane_id.clone());
+            let mut pane_ids = vec![root_pane_id.clone()];
+            let ratios: Vec<f32> = wc.panes.iter().map(|p| p.ratio.unwrap_or(1.0)).collect();
+            let mut remaining_ratio: f32 = ratios.iter().sum();
 
-            let mut last_pane_id = root_pane_id.clone();
-            for _ in 1..wc.panes.len() {
+            let mut current_pane_id = root_pane_id.clone();
+            for i in 0..wc.panes.len() - 1 {
+                let next_ratios_sum: f32 = ratios[i + 1..].iter().sum();
+                let percentage = (next_ratios_sum / remaining_ratio) * 100.0;
+
                 let mut cmd = Command::new("tmux");
                 cmd.arg("split-window")
+                    .arg("-d") // Add -d to avoid focus flickering
                     .arg("-h")
+                    .arg("-l")
+                    .arg(format!("{}%", percentage.round() as u32))
                     .arg("-t")
-                    .arg(&last_pane_id)
+                    .arg(&current_pane_id)
                     .arg("-c")
                     .arg(path.to_string_lossy().as_ref())
                     .arg("-P")
@@ -142,7 +149,8 @@ fn create_session_from_config(
                     .arg("#{pane_id}");
                 let new_id = get_command_output(cmd, debug)?;
                 pane_ids.push(new_id.clone());
-                last_pane_id = new_id;
+                current_pane_id = new_id;
+                remaining_ratio = next_ratios_sum;
             }
 
             for (i, pane_config) in wc.panes.iter().enumerate() {
@@ -161,16 +169,26 @@ fn create_session_from_config(
 
     if !exec_tasks.is_empty() {
         if debug {
-            println!("Waiting 400ms for tmux to stabilize...");
+            println!("Waiting {}ms for tmux to stabilize...", config.tmux.startup_delay_ms);
         }
-        thread::sleep(Duration::from_millis(400));
+        thread::sleep(Duration::from_millis(config.tmux.startup_delay_ms));
+
+        let tmux_cfg = config.tmux.clone();
 
         thread::scope(|s| {
-            for task in exec_tasks {
+            for (task_idx, task) in exec_tasks.into_iter().enumerate() {
+                let tmux_cfg = tmux_cfg.clone();
                 s.spawn(move || {
+                    // Stagger start to avoid overwhelming tmux/shell
+                    thread::sleep(Duration::from_millis(task_idx as u64 * 25));
+
                     for (cmd_idx, exec_cmd) in task.commands.iter().enumerate() {
                         let mut final_cmd = exec_cmd.clone();
                         let trimmed = exec_cmd.trim();
+
+                        if trimmed.is_empty() {
+                            continue;
+                        }
 
                         if let Some((keyword, val)) = trimmed.split_once(' ') {
                             match keyword {
@@ -206,7 +224,7 @@ fn create_session_from_config(
                                     }
                                 }
                                 "@send-key" | "@sk" => {
-                                    thread::sleep(Duration::from_millis(40));
+                                    thread::sleep(Duration::from_millis(tmux_cfg.key_delay_ms));
                                     let mut key_cmd = Command::new("tmux");
                                     key_cmd
                                         .arg("send-keys")
@@ -220,45 +238,39 @@ fn create_session_from_config(
                             }
                         }
 
+                        // Robust execution sequence
+                        // 1. Reset terminal and clear current line
                         if cmd_idx == 0 {
-                            let mut break_cmd = Command::new("tmux");
-                            break_cmd
-                                .arg("send-keys")
-                                .arg("-t")
-                                .arg(&task.pane_id)
-                                .arg("C-c");
-                            let _ = break_cmd.status();
-                            thread::sleep(Duration::from_millis(80));
+                            let mut reset_cmd = Command::new("tmux");
+                            reset_cmd.arg("send-keys").arg("-t").arg(&task.pane_id).arg("-R").arg("C-c");
+                            let _ = reset_cmd.status();
+                            thread::sleep(Duration::from_millis(tmux_cfg.key_delay_ms));
                         }
 
                         let mut clear_cmd = Command::new("tmux");
-                        clear_cmd
-                            .arg("send-keys")
-                            .arg("-t")
-                            .arg(&task.pane_id)
-                            .arg("C-u");
+                        clear_cmd.arg("send-keys").arg("-t").arg(&task.pane_id).arg("C-u");
                         let _ = clear_cmd.status();
-                        thread::sleep(Duration::from_millis(40));
+                        thread::sleep(Duration::from_millis(tmux_cfg.key_delay_ms));
 
+                        // 2. Send the command literally
                         let mut run_cmd = Command::new("tmux");
-                        run_cmd
-                            .arg("send-keys")
-                            .arg("-t")
-                            .arg(&task.pane_id)
-                            .arg("-l")
-                            .arg(&final_cmd);
+                        run_cmd.arg("send-keys")
+                               .arg("-t")
+                               .arg(&task.pane_id)
+                               .arg("-l")
+                               .arg(&final_cmd);
                         let _ = run_cmd.status();
-                        thread::sleep(Duration::from_millis(40));
+                        thread::sleep(Duration::from_millis(tmux_cfg.key_delay_ms));
 
+                        // 3. Send Enter
                         let mut enter_cmd = Command::new("tmux");
-                        enter_cmd
-                            .arg("send-keys")
-                            .arg("-t")
-                            .arg(&task.pane_id)
-                            .arg("C-m");
+                        enter_cmd.arg("send-keys")
+                                 .arg("-t")
+                                 .arg(&task.pane_id)
+                                 .arg("C-m");
                         let _ = enter_cmd.status();
 
-                        thread::sleep(Duration::from_millis(80));
+                        thread::sleep(Duration::from_millis(tmux_cfg.action_delay_ms));
                     }
                 });
             }
@@ -286,21 +298,29 @@ fn setup_pane(
     window_name: &str,
 ) -> Result<(), Box<dyn Error>> {
     if !config.panes.is_empty() {
-        let mut sub_pane_ids = Vec::new();
-        sub_pane_ids.push(pane_id.to_string());
+        let mut sub_pane_ids = vec![pane_id.to_string()];
 
         let split_arg = match config.split {
             Some(SplitDirection::Vertical) => "-h",
             _ => "-v",
         };
 
-        let mut last_id = pane_id.to_string();
-        for _ in 1..config.panes.len() {
+        let ratios: Vec<f32> = config.panes.iter().map(|p| p.ratio.unwrap_or(1.0)).collect();
+        let mut remaining_ratio: f32 = ratios.iter().sum();
+
+        let mut current_pane_id = pane_id.to_string();
+        for i in 0..config.panes.len() - 1 {
+            let next_ratios_sum: f32 = ratios[i + 1..].iter().sum();
+            let percentage = (next_ratios_sum / remaining_ratio) * 100.0;
+
             let mut cmd = Command::new("tmux");
             cmd.arg("split-window")
+                .arg("-d")
                 .arg(split_arg)
+                .arg("-l")
+                .arg(format!("{}%", percentage.round() as u32))
                 .arg("-t")
-                .arg(&last_id)
+                .arg(&current_pane_id)
                 .arg("-c")
                 .arg(path.to_string_lossy().as_ref())
                 .arg("-P")
@@ -308,7 +328,8 @@ fn setup_pane(
                 .arg("#{pane_id}");
             let new_id = get_command_output(cmd, debug)?;
             sub_pane_ids.push(new_id.clone());
-            last_id = new_id;
+            current_pane_id = new_id;
+            remaining_ratio = next_ratios_sum;
         }
 
         for (i, sub_pane_config) in config.panes.iter().enumerate() {

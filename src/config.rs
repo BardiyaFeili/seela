@@ -9,12 +9,34 @@ pub struct Config {
     #[serde(default)]
     pub fzf: FzfConfig,
     #[serde(default)]
+    pub tmux: TmuxConfig,
+    #[serde(default)]
     pub windows: Vec<Window>,
     #[serde(default)]
     pub custom_sessions: Vec<Session>,
     pub default_session: Option<Session>,
     #[serde(default)]
     pub project_types: Vec<ProjectType>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TmuxConfig {
+    #[serde(default = "defaults::startup_delay")]
+    pub startup_delay_ms: u64,
+    #[serde(default = "defaults::key_delay")]
+    pub key_delay_ms: u64,
+    #[serde(default = "defaults::action_delay")]
+    pub action_delay_ms: u64,
+}
+
+impl Default for TmuxConfig {
+    fn default() -> Self {
+        Self {
+            startup_delay_ms: defaults::startup_delay(),
+            key_delay_ms: defaults::key_delay(),
+            action_delay_ms: defaults::action_delay(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -51,6 +73,7 @@ pub struct Pane {
     pub exec: Option<Vec<String>>,
     #[serde(default)]
     pub panes: Vec<Pane>,
+    pub ratio: Option<f32>,
 }
 
 #[derive(Debug, Deserialize, Clone, Copy)]
@@ -85,6 +108,15 @@ mod defaults {
     }
     pub fn preview_command() -> String {
         "tree -C -L 2 {}".to_string()
+    }
+    pub fn startup_delay() -> u64 {
+        1000
+    }
+    pub fn key_delay() -> u64 {
+        100
+    }
+    pub fn action_delay() -> u64 {
+        200
     }
 }
 

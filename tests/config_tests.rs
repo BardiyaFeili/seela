@@ -9,6 +9,7 @@ fn test_get_session_for_path() {
             exclude_paths: None,
         },
         fzf: FzfConfig::default(),
+        tmux: seela::config::TmuxConfig::default(),
         windows: vec![],
         custom_sessions: vec![
             Session {
@@ -58,6 +59,7 @@ fn test_longest_prefix_matching() {
             exclude_paths: None,
         },
         fzf: FzfConfig::default(),
+        tmux: seela::config::TmuxConfig::default(),
         windows: vec![],
         custom_sessions: vec![
             Session {
@@ -102,6 +104,7 @@ fn test_hierarchy_and_types() {
     let config = Config {
         folders: Folders { search_dirs: vec![], force_include: None, exclude_paths: None },
         fzf: FzfConfig::default(),
+        tmux: seela::config::TmuxConfig::default(),
         windows: vec![],
         project_types: vec![
             ProjectType {
@@ -152,4 +155,32 @@ fn test_hierarchy_and_types() {
     assert_eq!(session.name.as_ref().unwrap(), "Prefix Match");
 
     fs::remove_dir_all(&temp_dir).unwrap();
+}
+
+#[test]
+fn test_config_with_ratios() {
+    let toml_str = r#"
+[folders]
+search_dirs = ["~/projects"]
+
+[[windows]]
+name = "dev"
+[[windows.panes]]
+ratio = 0.7
+exec = ["nvim"]
+[[windows.panes]]
+ratio = 0.3
+split = "vertical"
+  [[windows.panes.panes]]
+  ratio = 0.5
+  exec = ["top"]
+  [[windows.panes.panes]]
+  ratio = 0.5
+  exec = ["ls"]
+"#;
+
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.windows[0].panes[0].ratio, Some(0.7));
+    assert_eq!(config.windows[0].panes[1].ratio, Some(0.3));
+    assert_eq!(config.windows[0].panes[1].panes[0].ratio, Some(0.5));
 }
