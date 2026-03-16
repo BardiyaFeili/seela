@@ -1,6 +1,6 @@
 # seela
 
-A simple tmux session manager. Lets you fuzzy-find your projects,
+A tmux session manager. Lets you fuzzy-find your projects,
 and handles the window/pane layout based on your config.
 
 ## Installation
