@@ -185,7 +185,8 @@ These can be used anywhere in an `exec` list:
   - `SEELA_SESSION_NAME`
   - `SEELA_WINDOW_NAME`
   - `SEELA_PANE_ID`
-    Supports `~` and paths relative to the config file. Example:
+
+Supports `~` and paths relative to the config file. Example:
 
 ```bash
 #!/bin/env bash
