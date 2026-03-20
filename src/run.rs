@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use walkdir::WalkDir;
 
-pub fn run_confirm(label: &str, cmd: &str) -> Result<(), Box<dyn Error>> {
-    print!("Run \"{label}\"? [Y/n] ");
+pub fn run_confirm(cmd: &str) -> Result<(), Box<dyn Error>> {
+    print!("Run \"{cmd}\"? [Y/n] ");
     io::stdout().flush()?;
 
     let mut input = String::new();
@@ -24,6 +24,22 @@ pub fn run_confirm(label: &str, cmd: &str) -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+fn is_excluded(path: &Path, exclude_paths: &[PathBuf], search_dirs: &[PathBuf]) -> bool {
+    let excluded_by = exclude_paths
+        .iter()
+        .filter(|ex| path.starts_with(ex.as_path()))
+        .max_by_key(|ex| ex.as_os_str().len());
+
+    let Some(exclude_rule) = excluded_by else {
+        return false;
+    };
+
+    // A search_dir more specific than the exclude rule re-opens the path.
+    !search_dirs
+        .iter()
+        .any(|s| path.starts_with(s) && s.as_os_str().len() > exclude_rule.as_os_str().len())
 }
 
 pub fn find_projects(config: &Config) -> Vec<PathBuf> {
@@ -71,26 +87,9 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
                     continue;
                 }
 
-                let mut longest_rule_len = 0;
-                let mut is_excluded = false;
-
-                for ex in &exclude_paths {
-                    if path.starts_with(ex) && ex.as_os_str().len() > longest_rule_len {
-                        longest_rule_len = ex.as_os_str().len();
-                        is_excluded = true;
-                    }
-                }
-
-                for s in &search_dirs {
-                    if path.starts_with(s) && s.as_os_str().len() >= longest_rule_len {
-                        longest_rule_len = s.as_os_str().len();
-                        is_excluded = false;
-                    }
-                }
-
-                if is_excluded {
-                    let is_parent_of_search = search_dirs.iter().any(|s| s.starts_with(path));
-                    if !is_parent_of_search {
+                if is_excluded(path, &exclude_paths, &search_dirs) {
+                    let has_search_dir_below = search_dirs.iter().any(|s| s.starts_with(path));
+                    if !has_search_dir_below {
                         it.skip_current_dir();
                     }
                     continue;
@@ -115,7 +114,12 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
     projects
 }
 
-pub fn run(config: &Config, debug: bool, headless: bool) -> Result<(), Box<dyn Error>> {
+pub fn run(
+    config: &Config,
+    config_dir: &Path,
+    debug: bool,
+    headless: bool,
+) -> Result<(), Box<dyn Error>> {
     if debug {
         println!("Loaded Config: {config:#?}");
     }
@@ -135,7 +139,7 @@ pub fn run(config: &Config, debug: bool, headless: bool) -> Result<(), Box<dyn E
     }
 
     if let Some(selected) = crate::fzf::select_project(&project_strings, &config.fzf)? {
-        crate::tmux::open_session(Path::new(&selected), config, debug)?;
+        crate::tmux::open_session(Path::new(&selected), config, config_dir, debug)?;
     }
 
     Ok(())

@@ -5,10 +5,14 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-/// Fixed poll interval for shell readiness checks — not a UI delay.
 const SHELL_POLL_MS: u64 = 50;
 
-pub fn open_session(path: &Path, config: &Config, debug: bool) -> Result<(), Box<dyn Error>> {
+pub fn open_session(
+    path: &Path,
+    config: &Config,
+    config_dir: &Path,
+    debug: bool,
+) -> Result<(), Box<dyn Error>> {
     let session_name = path
         .file_name()
         .ok_or("Could not get directory name")?
@@ -33,10 +37,14 @@ pub fn open_session(path: &Path, config: &Config, debug: bool) -> Result<(), Box
 
     if !session_exists {
         if let Some(session_config) = config.get_session_for_path(path) {
-            if let Err(e) =
-                create_session_from_config(&session_name, path, config, session_config, debug)
-            {
-                // Kill the partially-created session so the next run starts clean.
+            if let Err(e) = create_session_from_config(
+                &session_name,
+                path,
+                config,
+                session_config,
+                config_dir,
+                debug,
+            ) {
                 let _ = Command::new("tmux")
                     .arg("kill-session")
                     .arg("-t")
@@ -128,9 +136,9 @@ struct ExecTask {
     path: PathBuf,
     session_name: String,
     window_name: String,
+    config_dir: PathBuf,
 }
 
-/// Split percentage for step `i` in a chain-split, clamped to [1, 99].
 fn split_percentage(ratios: &[f32], i: usize, remaining_ratio: f32) -> u32 {
     let next_sum: f32 = ratios[i + 1..].iter().sum();
     let pct = (next_sum / remaining_ratio) * 100.0;
@@ -150,6 +158,7 @@ fn create_session_from_config(
     path: &Path,
     config: &Config,
     session_config: &Session,
+    config_dir: &Path,
     debug: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut exec_tasks = Vec::new();
@@ -200,7 +209,6 @@ fn create_session_from_config(
             let mut current_pane_id = root_pane_id.clone();
             for i in 0..wc.panes.len().saturating_sub(1) {
                 let percentage = split_percentage(&ratios, i, remaining_ratio);
-
                 let mut cmd = Command::new("tmux");
                 cmd.arg("split-window")
                     .arg("-d")
@@ -233,6 +241,7 @@ fn create_session_from_config(
                         &pane_ids[i],
                         pane_config,
                         path,
+                        config_dir,
                         debug,
                         &mut exec_tasks,
                         session_name,
@@ -268,7 +277,6 @@ fn create_session_from_config(
                         thread::sleep(Duration::from_millis(tmux_cfg.key_delay_ms));
                     }
 
-                    // Reset terminal state and clear any partial input once, up front.
                     let mut reset_cmd = Command::new("tmux");
                     reset_cmd.arg("send-keys").arg("-t").arg(&task.pane_id).arg("-R");
                     let _ = reset_cmd.status();
@@ -292,30 +300,33 @@ fn create_session_from_config(
                                 "@confirm" => {
                                     if let Ok(current_exe) = std::env::current_exe() {
                                         final_cmd = format!(
-                                            "{} --run-command {} --run-command-label {}; clear",
+                                            "{} --run-command {}",
                                             current_exe.display(),
-                                            shell_escape(val),
                                             shell_escape(val),
                                         );
                                     }
                                 }
                                 "@run" => {
-                                    // load-buffer + paste-buffer feeds the command
-                                    // directly into the pane's stdin, so it executes
-                                    // without being displayed on the terminal at all.
+                                    let expanded_val = {
+                                        let mut parts = val.splitn(2, ' ');
+                                        let script = expand_exec_path(
+                                            parts.next().unwrap_or(""),
+                                            &task.config_dir,
+                                        );
+                                        let rest = parts.next().unwrap_or("");
+                                        if rest.is_empty() { script } else { format!("{script} {rest}") }
+                                    };
                                     let cmd_str = format!(
-                                        "SEELA_SESSION_PATH={} SEELA_SESSION_NAME={} SEELA_WINDOW_NAME={} SEELA_PANE_ID={} {}
-",
+                                        "SEELA_SESSION_PATH={} SEELA_SESSION_NAME={} SEELA_WINDOW_NAME={} SEELA_PANE_ID={} {}\n",
                                         shell_escape(&task.path.display().to_string()),
                                         shell_escape(&task.session_name),
                                         shell_escape(&task.window_name),
                                         shell_escape(&task.pane_id),
-                                        val,
+                                        expanded_val,
                                     );
                                     wait_for_shell_idle(&task.pane_id, 10_000);
                                     let mut load = Command::new("tmux")
-                                        .arg("load-buffer")
-                                        .arg("-")
+                                        .arg("load-buffer").arg("-")
                                         .stdin(std::process::Stdio::piped())
                                         .spawn()
                                         .expect("tmux load-buffer failed");
@@ -326,7 +337,6 @@ fn create_session_from_config(
                                     let _ = load.wait();
                                     let _ = Command::new("tmux")
                                         .arg("paste-buffer")
-                                        .arg("-p")
                                         .arg("-t").arg(&task.pane_id)
                                         .status();
                                     thread::sleep(Duration::from_millis(tmux_cfg.action_delay_ms));
@@ -349,8 +359,7 @@ fn create_session_from_config(
                                     let mut key_cmd = Command::new("tmux");
                                     key_cmd
                                         .arg("send-keys")
-                                        .arg("-t")
-                                        .arg(&task.pane_id)
+                                        .arg("-t").arg(&task.pane_id)
                                         .arg(val);
                                     let _ = key_cmd.status();
                                     continue;
@@ -364,10 +373,8 @@ fn create_session_from_config(
                         let mut run_cmd = Command::new("tmux");
                         run_cmd
                             .arg("send-keys")
-                            .arg("-t")
-                            .arg(&task.pane_id)
-                            .arg("-l")
-                            .arg(&final_cmd);
+                            .arg("-t").arg(&task.pane_id)
+                            .arg("-l").arg(&final_cmd);
                         let _ = run_cmd.status();
 
                         thread::sleep(Duration::from_millis(tmux_cfg.key_delay_ms));
@@ -375,8 +382,7 @@ fn create_session_from_config(
                         let mut enter_cmd = Command::new("tmux");
                         enter_cmd
                             .arg("send-keys")
-                            .arg("-t")
-                            .arg(&task.pane_id)
+                            .arg("-t").arg(&task.pane_id)
                             .arg("C-m");
                         let _ = enter_cmd.status();
 
@@ -398,15 +404,25 @@ fn create_session_from_config(
     Ok(())
 }
 
-/// Wraps `s` in single quotes, escaping any single quotes within.
 fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+fn expand_exec_path(s: &str, config_dir: &Path) -> String {
+    let expanded = shellexpand::tilde(s);
+    let p = Path::new(expanded.as_ref());
+    if p.is_absolute() {
+        p.to_string_lossy().into_owned()
+    } else {
+        config_dir.join(p).to_string_lossy().into_owned()
+    }
 }
 
 fn setup_pane(
     pane_id: &str,
     config: &crate::config::Pane,
     path: &Path,
+    config_dir: &Path,
     debug: bool,
     exec_tasks: &mut Vec<ExecTask>,
     session_name: &str,
@@ -430,7 +446,6 @@ fn setup_pane(
         let mut current_pane_id = pane_id.to_string();
         for i in 0..config.panes.len().saturating_sub(1) {
             let percentage = split_percentage(&ratios, i, remaining_ratio);
-
             let mut cmd = Command::new("tmux");
             cmd.arg("split-window")
                 .arg("-d")
@@ -463,6 +478,7 @@ fn setup_pane(
                     &sub_pane_ids[i],
                     sub_pane_config,
                     path,
+                    config_dir,
                     debug,
                     exec_tasks,
                     session_name,
@@ -479,6 +495,7 @@ fn setup_pane(
             path: path.to_path_buf(),
             session_name: session_name.to_string(),
             window_name: window_name.to_string(),
+            config_dir: config_dir.to_path_buf(),
         });
     }
 

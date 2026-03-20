@@ -13,12 +13,9 @@ pub struct Args {
     pub debug: bool,
 
     /// Disable fzf and tmux (for debugging)
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub headless: bool,
 
     #[arg(long, hide = true)]
     pub run_command: Option<String>,
-
-    #[arg(long, hide = true)]
-    pub run_command_label: Option<String>,
 }

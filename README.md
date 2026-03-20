@@ -68,11 +68,8 @@ preview_command = "tree -C -L 2 {}"
 fzf_opts = "--height 40% --layout=reverse"
 
 [tmux]
-# Time to wait for tmux to stabilize before sending commands (ms)
-startup_delay_ms = 1000
-# Delay between keys and minor actions (ms)
-key_delay_ms = 100
-# Delay after major actions like Enter or C-c (ms)
+startup_delay_ms = 700
+key_delay_ms = 60
 action_delay_ms = 200
 ```
 
@@ -81,7 +78,6 @@ action_delay_ms = 200
 > shell is ready), try increasing the values in the `[tmux]` section.
 > Different operating systems, shells, and hardware may require different
 > timings to ensure commands are processed correctly.
-
 
 ### Layout Configuration
 
@@ -154,7 +150,7 @@ and `split = "horizontal"` for top-to-bottom panes.
 
 The `split` property on a "parent" pane tells `seela` how to lay out its
 "children". You can use the `ratio` property (a float) to define proportional
-sizes for panes. If omitted, panes share the available space equally.
+sizes for panes. By default each pane takes 50%.
 
 ```toml
 [[windows]]
@@ -180,34 +176,46 @@ split = "vertical"  # The children below will be side-by-side
     ratio = 0.6      # 60% height of the 30% width
 ```
 
-#### Special Operators
+### Special operators
 
-You can use special operators in the `exec` list to control command execution:
+These can be used anywhere in an `exec` list:
 
-- **`@run <command>`**: Executes the command in the pane with several
-  environment variables set:
-  - `SEELA_SESSION_PATH`: Absolute path to the project.
-  - `SEELA_SESSION_NAME`: Name of the tmux session.
-  - `SEELA_WINDOW_NAME`: Name of the current window.
-  - `SEELA_PANE_ID`: Unique ID of the current pane.
-- **`@confirm <command>`**: Prompts for confirmation (`Run "command"? [Y/n]`)
-  before executing.
-- **`@wait <seconds>`**: Pauses execution for the specified number of seconds.
-- **`@wait-milli <ms>`** (alias **`@wait-ms`**): Pauses execution for the
-  specified number of milliseconds.
-- **`@send-key <key>`** (alias **`@sk`**): Sends a raw key or key sequence to
-  the pane (e.g., `Enter`, `Space`, `C-c`, `C-l`).
+- **`@run <script>`** — runs with the following environment variables set:
+  - `SEELA_SESSION_PATH`
+  - `SEELA_SESSION_NAME`
+  - `SEELA_WINDOW_NAME`
+  - `SEELA_PANE_ID`
+    Supports `~` and paths relative to the config file. Example:
+
+```bash
+#!/bin/env bash
+notify-send "Attached to $SEELA_SESSION_NAME" "$SEELA_SESSION_PATH"
+```
+
+```toml
+[[windows.panes]]
+exec = ["@run ~/scripts/notify.sh"]
+```
+
+- **`@confirm <command>`** — prompts `Run "command"? [Y/n]` before running.
+- **`@wait <seconds>`** — pauses for the given number of seconds.
+- **`@wait-milli <ms>`** / **`@wait-ms <ms>`** — pauses for milliseconds.
+- **`@send-key <key>`** / **`@sk <key>`** — sends a raw key to the pane (e.g. `Enter`, `C-c`, `C-l`).
 
 > [!NOTE]
 > All panes need to be initialized before you you are attached to the session.
 > This means using high `@wait` will make the app just stall for that period.
 
-## TODO
+Example using several operators together:
 
-- [x] Implement TOML config loading (`src/config.rs`)
-- [x] Recursive project discovery (look for `.git` folders)
-- [x] `fzf` integration for project selection
-- [x] Basic tmux session opening
-- [x] Complex window/pane layout support
-- [x] Different layouts based on project paths
-- [x] Custom and inbuilt types and layout based on the type
+```toml
+[[windows]]
+name = "dev"
+
+[[windows.panes]]
+exec = [
+  "@run ~/scripts/setup.sh",
+  "@confirm cargo build --release",
+  "@sk C-l",
+]
+```

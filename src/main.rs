@@ -11,16 +11,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = cli::Args::parse();
 
     if let Some(cmd) = args.run_command {
-        // Use the label for display if provided, otherwise fall back to the raw command.
-        let label = args.run_command_label.as_deref().unwrap_or(&cmd);
-        return run::run_confirm(label, &cmd);
+        return run::run_confirm(&cmd);
     }
 
     let config_path = config::get_config_path(args.config);
 
     if let Some(path) = config_path {
+        let config_dir = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
         match config::Config::load(path) {
-            Ok(cfg) => run::run(&cfg, args.debug, args.headless)?,
+            Ok(cfg) => run::run(&cfg, &config_dir, args.debug, args.headless)?,
             Err(e) => {
                 eprintln!("Error loading config: {e}");
                 std::process::exit(1);
