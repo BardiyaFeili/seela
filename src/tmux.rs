@@ -203,22 +203,31 @@ fn create_session_from_config(
                     .arg("-P")
                     .arg("-F")
                     .arg("#{pane_id}");
-                let new_id = get_command_output(cmd, debug)?;
-                pane_ids.push(new_id.clone());
-                current_pane_id = new_id;
+                match get_command_output(cmd, debug) {
+                    Ok(new_id) => {
+                        pane_ids.push(new_id.clone());
+                        current_pane_id = new_id;
+                    }
+                    Err(e) => {
+                        eprintln!("seela: split-window failed: {e}");
+                        break;
+                    }
+                }
                 remaining_ratio -= ratios[i];
             }
 
             for (i, pane_config) in wc.panes.iter().enumerate() {
-                setup_pane(
-                    &pane_ids[i],
-                    pane_config,
-                    path,
-                    debug,
-                    &mut exec_tasks,
-                    session_name,
-                    window_name,
-                )?;
+                if i < pane_ids.len() {
+                    setup_pane(
+                        &pane_ids[i],
+                        pane_config,
+                        path,
+                        debug,
+                        &mut exec_tasks,
+                        session_name,
+                        window_name,
+                    )?;
+                }
             }
         }
     }
@@ -260,7 +269,7 @@ fn create_session_from_config(
                     thread::sleep(Duration::from_millis(tmux_cfg.key_delay_ms));
 
                     for exec_cmd in task.commands.iter() {
-                        let final_cmd = exec_cmd.clone();
+                        let mut final_cmd = exec_cmd.clone();
                         let trimmed = exec_cmd.trim();
 
                         if trimmed.is_empty() {
@@ -271,24 +280,13 @@ fn create_session_from_config(
                             match keyword {
                                 "@confirm" => {
                                     if let Ok(current_exe) = std::env::current_exe() {
-                                        // respawn-pane exec's the binary directly — no shell
-                                        // echo, no prompt line, just the Run "..."? output.
-                                        let respawn_cmd = format!(
+                                        final_cmd = format!(
                                             "{} --run-command {} --run-command-label {}",
                                             current_exe.display(),
                                             shell_escape(val),
                                             shell_escape(val),
                                         );
-                                        wait_for_shell_idle(&task.pane_id, 10_000);
-                                        let mut cmd = Command::new("tmux");
-                                        cmd.arg("respawn-pane")
-                                            .arg("-k")
-                                            .arg("-t")
-                                            .arg(&task.pane_id)
-                                            .arg(respawn_cmd);
-                                        let _ = cmd.status();
                                     }
-                                    continue;
                                 }
                                 "@run" => {
                                     // load-buffer + paste-buffer feeds the command
@@ -435,22 +433,31 @@ fn setup_pane(
                 .arg("-P")
                 .arg("-F")
                 .arg("#{pane_id}");
-            let new_id = get_command_output(cmd, debug)?;
-            sub_pane_ids.push(new_id.clone());
-            current_pane_id = new_id;
+            match get_command_output(cmd, debug) {
+                Ok(new_id) => {
+                    sub_pane_ids.push(new_id.clone());
+                    current_pane_id = new_id;
+                }
+                Err(e) => {
+                    eprintln!("seela: split-window failed: {e}");
+                    break;
+                }
+            }
             remaining_ratio -= ratios[i];
         }
 
         for (i, sub_pane_config) in config.panes.iter().enumerate() {
-            setup_pane(
-                &sub_pane_ids[i],
-                sub_pane_config,
-                path,
-                debug,
-                exec_tasks,
-                session_name,
-                window_name,
-            )?;
+            if i < sub_pane_ids.len() {
+                setup_pane(
+                    &sub_pane_ids[i],
+                    sub_pane_config,
+                    path,
+                    debug,
+                    exec_tasks,
+                    session_name,
+                    window_name,
+                )?;
+            }
         }
     } else if let Some(execs) = &config.exec
         && !execs.is_empty()
