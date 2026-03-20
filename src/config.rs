@@ -65,6 +65,10 @@ pub struct Session {
 pub struct Window {
     pub name: String,
     pub panes: Vec<Pane>,
+    #[serde(default)]
+    pub hooks: Vec<String>,
+    #[serde(default)]
+    pub hooks_parallel: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]

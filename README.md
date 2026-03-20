@@ -1,21 +1,17 @@
 # seela
 
-A tmux session manager. Lets you fuzzy-find your projects,
+A tmux session manager. Lets you fuzzy-find your projects
 and handles the window/pane layout based on your config.
 
 ## Installation
-
-You can install `seela` directly from [crates.io](https://crates.io/crates/seela):
 
 ```bash
 cargo install seela
 ```
 
-Make sure that your cargo bin directory (usually `~/.cargo/bin`) is in your `PATH`.
+Make sure `$CARGO_HOME/bin` (usually `~/.cargo/bin`) is in your `PATH`.
 
 ### Build from source
-
-If you prefer to build from source:
 
 ```bash
 git clone https://github.com/BardiyaFeili/seela.git
@@ -25,198 +21,288 @@ cargo build --release
 
 ## Usage
 
-Run the binary
-
 ```bash
 seela
-```
-
-Or specify a custom config path:
-
-```bash
 seela --config path/to/config.toml
 ```
 
-### Tmux Integration
-
-You can use `seela` in tmux like this
+Bind it to a key in tmux: (In `tmux.conf`)
 
 ```tmux
 bind g display-popup -w 80% -h 80% -E "seela"
 ```
 
-## Configuration
+## Config file
 
-`seela` looks for a config file in the following order:
+seela looks for config in this order:
 
 1. `--config` flag
 2. `$SEELA_CONFIG_HOME/config.toml`
 3. `$XDG_CONFIG_HOME/seela/config.toml`
 4. `~/.config/seela/config.toml`
 
-Example `config.toml`:
+---
+
+## Folders
 
 ```toml
 [folders]
-search_dirs = ["~/projects", "~/work"]
+search_dirs   = ["~/projects", "~/work"]
 exclude_paths = ["~/projects/archive"]
-force_include = ["~/special-project"]
-
-[fzf]
-preview = true
-preview_command = "tree -C -L 2 {}"
-fzf_opts = "--height 40% --layout=reverse"
-
-[tmux]
-startup_delay_ms = 700
-key_delay_ms = 60
-action_delay_ms = 200
+force_include = ["~/dotfiles"]
 ```
 
-> [!TIP]
-> If your `exec` commands are not running correctly (e.g., being sent before the
-> shell is ready), try increasing the values in the `[tmux]` section.
-> Different operating systems, shells, and hardware may require different
-> timings to ensure commands are processed correctly.
+- `search_dirs` — walked recursively, any directory with `.git` is a project
+- `exclude_paths` — skipped entirely, including subdirectories
+- `force_include` — always included, ignores exclusion rules
 
-### Layout Configuration
+If a `search_dir` is inside an excluded path, it still gets searched.
 
-You can configure your tmux session's layout.
-Based on the path of the project or its type.
+```toml
+# ~/code/old is excluded, but ~/code/old/needed is still searched
+search_dirs   = ["~/code", "~/code/old/needed"]
+exclude_paths = ["~/code/old"]
+```
 
-#### Default Session
+---
 
-`default_session` is for projects that do not match any path or type.
+## fzf
+
+```toml
+[fzf]
+preview         = true
+preview_command = "tree -C -L 2 {}"
+fzf_opts        = "--height 40% --layout=reverse"
+```
+
+---
+
+## Sessions
+
+When you pick a project, seela matches it to a session config in this order:
+
+1. Exact path match
+2. Project type match
+3. Closest path prefix
+4. `default_session`
 
 ```toml
 [default_session]
-windows = ["editor", "terminal"]
+windows      = ["editor", "terminal"]
 window_focus = "editor"
 ```
-
-#### Custom Sessions
-
-You can also define `custom_sessions`
-Which can match a project based on the path or type.
-
-The projects will math the session based on this order:
-
-1. Exact Path
-2. Type Match
-3. Partial Path Match (The closest match will be chosen)
-4. Default Session
 
 ```toml
 [[custom_sessions]]
-name = "Rust Development"
-types = ["rust"]  # Match projects of type 'rust'
-windows = ["editor", "bacon"]
+paths        = ["~/projects/myapp"]   # exact or prefix match
+types        = ["rust"]               # or by project type
+windows      = ["editor", "bacon"]
 window_focus = "editor"
-
-[[custom_sessions]]
-name = "Web Development"
-paths = ["~/projects/web"] # Match by path prefix
-types = ["web"]            # OR match by project type
-windows = ["editor", "server", "logs"]
 ```
 
-#### Project Types
+`paths` and `types` are OR'd, either one matching is enough.
 
-You can define your types like this.
+### Project types
+
+A type matches if any of its `files` exist in the project directory.
 
 ```toml
 [[project_types]]
-name = "rust"
+name  = "rust"
 files = ["Cargo.toml"]
 
 [[project_types]]
-name = "web"
-files = ["tsconfig.json", "package.json", "node_modules"]
+name  = "web"
+files = ["package.json", "tsconfig.json"]
 ```
 
-#### Window Layouts
+---
+
+## Windows
+
+Windows are defined globally and referenced by name from sessions.
 
 ```toml
 [[windows]]
 name = "editor"
+
 [[windows.panes]]
 exec = ["nvim"]
 ```
 
-#### Deeply Nested Panes
+### Pane splits
 
-The panes are nest-able Use `split = "vertical"` for side-by-side panes
-and `split = "horizontal"` for top-to-bottom panes.
+`split` on a pane describes how its children are arranged:
 
-The `split` property on a "parent" pane tells `seela` how to lay out its
-"children". You can use the `ratio` property (a float) to define proportional
-sizes for panes. By default each pane takes 50%.
+- `"vertical"` — side by side
+- `"horizontal"` — top and bottom
+
+`ratio` controls proportional size. Omit it for equal splits.
 
 ```toml
 [[windows]]
 name = "dev"
 
 [[windows.panes]]
-split = "vertical"  # The children below will be side-by-side
+split = "vertical"
 
   [[windows.panes.panes]]
-  exec = ["nvim"]
-  ratio = 0.7       # 70% width
+  exec  = ["nvim"]
+  ratio = 0.7
 
   [[windows.panes.panes]]
   split = "horizontal"
-  ratio = 0.3       # 30% width
+  ratio = 0.3
 
     [[windows.panes.panes.panes]]
-    exec = ["ls -la"]
-    ratio = 0.4      # 40% height of the 30% width
+    exec  = ["cargo watch"]
+    ratio = 0.6
 
     [[windows.panes.panes.panes]]
-    exec = ["git status"]
-    ratio = 0.6      # 60% height of the 30% width
+    exec  = ["lazygit"]
+    ratio = 0.4
 ```
 
-### Special operators
+---
 
-These can be used anywhere in an `exec` list:
+## Exec operators
 
-- **`@run <script>`** — runs with the following environment variables set:
-  - `SEELA_SESSION_PATH`
-  - `SEELA_SESSION_NAME`
-  - `SEELA_WINDOW_NAME`
-  - `SEELA_PANE_ID`
+Used inside a pane's `exec` list to control how commands run.
 
-Supports `~` and paths relative to the config file. Example:
+### `@confirm`
 
-```bash
-#!/bin/env bash
-notify-send "Attached to $SEELA_SESSION_NAME" "$SEELA_SESSION_PATH"
-```
+Prompts before running. Good for destructive or slow commands.
 
 ```toml
-[[windows.panes]]
-exec = ["@run ~/scripts/notify.sh"]
+exec = ["@confirm cargo run --release"]
+# Run "cargo run --release"? [Y/n]
 ```
 
-- **`@confirm <command>`** — prompts `Run "command"? [Y/n]` before running.
-- **`@wait <seconds>`** — pauses for the given number of seconds.
-- **`@wait-milli <ms>`** / **`@wait-ms <ms>`** — pauses for milliseconds.
-- **`@send-key <key>`** / **`@sk <key>`** — sends a raw key to the pane (e.g. `Enter`, `C-c`, `C-l`).
+### `@run`
 
-> [!NOTE]
-> All panes need to be initialized before you you are attached to the session.
-> This means using high `@wait` will make the app just stall for that period.
+Runs a script or command with these environment variables passed to it:
 
-Example using several operators together:
+| Variable             | Value                        |
+| -------------------- | ---------------------------- |
+| `SEELA_SESSION_PATH` | Absolute path to the project |
+| `SEELA_SESSION_NAME` | tmux session name            |
+| `SEELA_WINDOW_NAME`  | Current window name          |
+| `SEELA_PANE_ID`      | tmux pane ID                 |
+
+Supports `~` and paths relative to the config file.
+
+```toml
+exec = ["@run ~/scripts/setup.sh"]
+exec = ["@run scripts/build.sh"]   # relative to config file
+exec = ["@run notify-send done"]   # plain commands work too
+```
+
+### `@send-key` / `@sk`
+
+Sends a raw key sequence to the pane. Useful for interacting with a running app.
+
+```toml
+exec = ["nvim", "@sk g"]   # open neovim, then sends 'g'
+```
+
+Keys follow tmux key names: `Enter`, `Escape`, `C-c`, `C-l`, `Space`, etc.
+
+### `@wait` / `@wait-milli`
+
+Pauses before the next command.
+
+```toml
+exec = ["start-server", "@wait 2", "connect-client"]
+exec = ["start-server", "@wait-milli 500", "connect-client"]
+```
+
+### Example combining operators
 
 ```toml
 [[windows]]
-name = "dev"
+name = "app"
+[[windows.panes]]
+split = "vertical"
+
+  [[windows.panes.panes]]
+  exec = [
+    "@confirm RUST_LOG=debug cargo run",
+  ]
+
+  [[windows.panes.panes]]
+  exec = [
+    "@confirm tail -f /tmp/app.log",
+  ]
+```
+
+---
+
+## Window hooks
+
+Scripts that run when a window opens, not tied to any pane.
+Good for background tasks, notifications, or setup that doesn't need a terminal.
+
+```toml
+[[windows]]
+name   = "editor"
+hooks  = ["notify-send 'opened' '$SEELA_SESSION_NAME'"]
 
 [[windows.panes]]
-exec = [
-  "@run ~/scripts/setup.sh",
-  "@confirm cargo build --release",
-  "@sk C-l",
+exec   = ["nvim"]
+```
+
+These environment variables are passed to hooks:
+
+| Variable             | Value                        |
+| -------------------- | ---------------------------- |
+| `SEELA_SESSION_PATH` | Absolute path to the project |
+| `SEELA_SESSION_NAME` | tmux session name            |
+| `SEELA_WINDOW_NAME`  | Current window name          |
+
+By default hooks run sequentially. Set `hooks_parallel = true` to run them in parallel.
+
+```toml
+[[windows]]
+name           = "editor"
+hooks_parallel = true
+hooks          = [
+  "notify-send 'ready' 'editor'",
+  "~/scripts/sync.sh",
 ]
+```
+
+Supports `~`, paths relative to the config file, and plain commands.
+
+If a hook fails, seela prints the exit code and stderr to your terminal.
+Successful hooks are silent.
+
+### Example: desktop notification on open
+
+```bash
+#!/bin/env bash
+# ~/.config/seela/scripts/notify.sh
+notify-send "Opened $SEELA_SESSION_NAME" "$SEELA_SESSION_PATH"
+```
+
+```toml
+[[windows]]
+name  = "editor"
+hooks = ["scripts/notify.sh"]
+
+[[windows.panes]]
+exec  = ["nvim"]
+```
+
+---
+
+## Timing
+
+seela uses shell readiness polling to know when a pane is ready for the next command.
+You can tune them if commands are firing too early.
+
+```toml
+[tmux]
+startup_delay_ms = 600   # wait before sending any commands
+key_delay_ms     = 60    # delay between keystrokes
+action_delay_ms  = 200   # delay after Enter
 ```

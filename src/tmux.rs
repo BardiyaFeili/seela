@@ -162,6 +162,7 @@ fn create_session_from_config(
     debug: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut exec_tasks = Vec::new();
+    let mut hook_handles: Vec<thread::JoinHandle<()>> = Vec::new();
 
     for (win_idx, window_name) in session_config.windows.iter().enumerate() {
         let window_config = config.windows.iter().find(|w| &w.name == window_name);
@@ -249,7 +250,30 @@ fn create_session_from_config(
                     )?;
                 }
             }
+
+            if !wc.hooks.is_empty() {
+                let hooks = wc.hooks.clone();
+                let parallel = wc.hooks_parallel;
+                let session_name_s = session_name.to_string();
+                let window_name_s = window_name.to_string();
+                let path_s = path.to_path_buf();
+                let config_dir_s = config_dir.to_path_buf();
+                hook_handles.push(thread::spawn(move || {
+                    run_window_hooks(
+                        &hooks,
+                        parallel,
+                        &session_name_s,
+                        &window_name_s,
+                        &path_s,
+                        &config_dir_s,
+                    );
+                }));
+            }
         }
+    }
+
+    for handle in hook_handles {
+        let _ = handle.join();
     }
 
     if !exec_tasks.is_empty() {
@@ -408,13 +432,80 @@ fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+/// Expands `~` and resolves relative paths against the config file directory.
+/// Plain command names (no `/`) are left untouched so PATH lookup still works.
 fn expand_exec_path(s: &str, config_dir: &Path) -> String {
     let expanded = shellexpand::tilde(s);
     let p = Path::new(expanded.as_ref());
     if p.is_absolute() {
         p.to_string_lossy().into_owned()
-    } else {
+    } else if s.contains('/') {
         config_dir.join(p).to_string_lossy().into_owned()
+    } else {
+        s.to_string()
+    }
+}
+
+fn run_hook(script: &str, session_name: &str, window_name: &str, path: &Path, config_dir: &Path) {
+    // Expand only the first token so arguments are preserved.
+    let expanded = {
+        let mut parts = script.splitn(2, ' ');
+        let cmd = expand_exec_path(parts.next().unwrap_or(""), config_dir);
+        let rest = parts.next().unwrap_or("");
+        if rest.is_empty() {
+            cmd
+        } else {
+            format!("{cmd} {rest}")
+        }
+    };
+    let cmd_str = format!(
+        "SEELA_SESSION_PATH={} SEELA_SESSION_NAME={} SEELA_WINDOW_NAME={} {}",
+        shell_escape(&path.display().to_string()),
+        shell_escape(session_name),
+        shell_escape(window_name),
+        expanded,
+    );
+    match Command::new("sh").arg("-c").arg(&cmd_str).output() {
+        Ok(out) if !out.status.success() => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let stderr = stderr.trim();
+            if !stderr.is_empty() {
+                eprintln!(
+                    "seela: hook '{}' failed ({}): {}",
+                    script, out.status, stderr
+                );
+            } else {
+                eprintln!("seela: hook '{}' failed ({})", script, out.status);
+            }
+        }
+        Err(e) => eprintln!("seela: hook '{}' could not run: {}", script, e),
+        _ => {}
+    }
+}
+
+fn run_window_hooks(
+    hooks: &[String],
+    parallel: bool,
+    session_name: &str,
+    window_name: &str,
+    path: &Path,
+    config_dir: &Path,
+) {
+    if parallel {
+        thread::scope(|s| {
+            for hook in hooks {
+                let hook = hook.clone();
+                let session_name = session_name.to_string();
+                let window_name = window_name.to_string();
+                let path = path.to_path_buf();
+                let config_dir = config_dir.to_path_buf();
+                s.spawn(move || run_hook(&hook, &session_name, &window_name, &path, &config_dir));
+            }
+        });
+    } else {
+        for hook in hooks {
+            run_hook(hook, session_name, window_name, path, config_dir);
+        }
     }
 }
 
