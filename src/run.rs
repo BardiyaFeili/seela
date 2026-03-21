@@ -42,30 +42,15 @@ fn is_excluded(path: &Path, exclude_paths: &[PathBuf], search_dirs: &[PathBuf]) 
         .any(|s| path.starts_with(s) && s.as_os_str().len() > exclude_rule.as_os_str().len())
 }
 
-pub fn find_projects(config: &Config) -> Vec<PathBuf> {
-    let search_dirs: Vec<PathBuf> = config
-        .folders
-        .search_dirs
-        .iter()
-        .map(|s| expand_path(s))
-        .collect();
-    let exclude_paths: Vec<PathBuf> = config
-        .folders
-        .exclude_paths
-        .as_ref()
-        .unwrap_or(&vec![])
-        .iter()
-        .map(|s| expand_path(s))
-        .collect();
-    let force_include: Vec<PathBuf> = config
-        .folders
-        .force_include
-        .as_ref()
-        .unwrap_or(&vec![])
-        .iter()
-        .map(|s| expand_path(s))
-        .collect();
+fn expand_paths(paths: &[String]) -> Vec<PathBuf> {
+    paths.iter().map(|s| expand_path(s)).collect()
+}
 
+pub fn find_projects(config: &Config) -> Vec<PathBuf> {
+    let search_dirs = expand_paths(&config.folders.search_dirs);
+    let exclude_paths = expand_paths(config.folders.exclude_paths.as_deref().unwrap_or(&[]));
+    let force_include = expand_paths(config.folders.force_include.as_deref().unwrap_or(&[]));
+    
     let mut projects: Vec<PathBuf> = force_include.into_iter().filter(|p| p.exists()).collect();
 
     let discovered: Vec<PathBuf> = search_dirs
