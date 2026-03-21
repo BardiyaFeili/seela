@@ -10,7 +10,27 @@ pub fn select_project(
     let mut cmd = Command::new("fzf");
 
     if config.preview {
-        cmd.arg("--preview").arg(&config.preview_command);
+        let binary = config
+            .preview_command
+            .split_whitespace()
+            .next()
+            .unwrap_or("");
+        let available = Command::new("which")
+            .arg(binary)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+
+        if available {
+            cmd.arg("--preview").arg(&config.preview_command);
+        } else if !binary.is_empty() {
+            eprintln!(
+                "seela: preview command '{}' not found, falling back to ls",
+                binary
+            );
+            cmd.arg("--preview").arg("ls {}");
+        }
     }
 
     if let Some(opts) = &config.fzf_opts {
