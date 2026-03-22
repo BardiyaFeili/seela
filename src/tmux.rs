@@ -7,21 +7,14 @@ use std::time::Duration;
 
 const SHELL_POLL_MS: u64 = 50;
 
-pub fn open_session(
-    path: &Path,
-    config: &Config,
-    config_dir: &Path,
-    debug: bool,
-) -> Result<(), Box<dyn Error>> {
+pub fn open_session(path: &Path, config: &Config, config_dir: &Path) -> Result<(), Box<dyn Error>> {
     let session_name = path
         .file_name()
         .ok_or("Could not get directory name")?
         .to_string_lossy()
         .replace('.', "_");
 
-    if debug {
-        println!("Opening session: {session_name}");
-    }
+    tracing::debug!("opening session: {session_name}");
 
     let status = Command::new("tmux")
         .arg("has-session")
@@ -37,14 +30,10 @@ pub fn open_session(
 
     if !session_exists {
         if let Some(session_config) = config.get_session_for_path(path) {
-            if let Err(e) = create_session_from_config(
-                &session_name,
-                path,
-                config,
-                session_config,
-                config_dir,
-                debug,
-            ) {
+            if let Err(e) =
+                create_session_from_config(&session_name, path, config, session_config, config_dir)
+            {
+                tracing::error!("session creation failed: {e}");
                 let _ = Command::new("tmux")
                     .arg("kill-session")
                     .arg("-t")
@@ -53,15 +42,21 @@ pub fn open_session(
                 return Err(e);
             }
         } else {
-            let mut cmd = Command::new("tmux");
-            cmd.arg("new-session")
+            tracing::debug!(
+                "no session config found for {}, creating plain session",
+                path.display()
+            );
+            Command::new("tmux")
+                .arg("new-session")
                 .arg("-d")
                 .arg("-s")
                 .arg(&session_name)
                 .arg("-c")
-                .arg(path.to_string_lossy().as_ref());
-            cmd.status()?;
+                .arg(path.to_string_lossy().as_ref())
+                .status()?;
         }
+    } else {
+        tracing::debug!("session {session_name} already exists, attaching");
     }
 
     if std::env::var("TMUX").is_ok() {
@@ -81,14 +76,12 @@ pub fn open_session(
     Ok(())
 }
 
-fn get_command_output(mut cmd: Command, debug: bool) -> Result<String, Box<dyn Error>> {
-    if debug {
-        println!("Executing for output: {cmd:?}");
-    }
+fn get_command_output(mut cmd: Command) -> Result<String, Box<dyn Error>> {
+    tracing::trace!("executing: {cmd:?}");
     let output = cmd.output()?;
     if !output.status.success() {
         return Err(format!(
-            "Tmux command failed: {:?}",
+            "tmux command failed: {:?}",
             String::from_utf8_lossy(&output.stderr)
         )
         .into());
@@ -123,6 +116,7 @@ fn wait_for_shell_idle(pane_id: &str, timeout_ms: u64) -> bool {
             return true;
         }
         if elapsed >= timeout_ms {
+            tracing::warn!("timed out waiting for shell idle on pane {pane_id}");
             return false;
         }
         thread::sleep(Duration::from_millis(SHELL_POLL_MS));
@@ -159,13 +153,19 @@ fn create_session_from_config(
     config: &Config,
     session_config: &Session,
     config_dir: &Path,
-    debug: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut exec_tasks = Vec::new();
     let mut hook_handles: Vec<thread::JoinHandle<()>> = Vec::new();
 
     for (win_idx, window_name) in session_config.windows.iter().enumerate() {
         let window_config = config.windows.iter().find(|w| &w.name == window_name);
+
+        if window_config.is_none() {
+            tracing::trace!(
+                "window '{}' referenced in session but not defined — creating empty window",
+                window_name
+            );
+        }
 
         let root_pane_id = if win_idx == 0 {
             let mut cmd = Command::new("tmux");
@@ -180,7 +180,7 @@ fn create_session_from_config(
                 .arg("-P")
                 .arg("-F")
                 .arg("#{pane_id}");
-            get_command_output(cmd, debug)?
+            get_command_output(cmd)?
         } else {
             let mut cmd = Command::new("tmux");
             cmd.arg("new-window")
@@ -194,60 +194,66 @@ fn create_session_from_config(
                 .arg("-P")
                 .arg("-F")
                 .arg("#{pane_id}");
-            get_command_output(cmd, debug)?
+            get_command_output(cmd)?
         };
 
+        tracing::debug!("created window '{window_name}' with root pane {root_pane_id}");
+
         if let Some(wc) = window_config {
+            // A window with an empty panes list gets one plain shell pane.
             if wc.panes.is_empty() {
-                continue;
-            }
+                tracing::debug!(
+                    "window '{window_name}' has no panes defined, leaving as single shell"
+                );
+                // root_pane_id already exists as a shell, nothing to do.
+            } else {
+                let split_arg = window_split_arg(wc);
+                let mut pane_ids = vec![root_pane_id.clone()];
+                let ratios: Vec<f32> = wc.panes.iter().map(|p| p.ratio.unwrap_or(1.0)).collect();
+                let mut remaining_ratio: f32 = ratios.iter().sum();
 
-            let split_arg = window_split_arg(wc);
-            let mut pane_ids = vec![root_pane_id.clone()];
-            let ratios: Vec<f32> = wc.panes.iter().map(|p| p.ratio.unwrap_or(1.0)).collect();
-            let mut remaining_ratio: f32 = ratios.iter().sum();
-
-            let mut current_pane_id = root_pane_id.clone();
-            for i in 0..wc.panes.len().saturating_sub(1) {
-                let percentage = split_percentage(&ratios, i, remaining_ratio);
-                let mut cmd = Command::new("tmux");
-                cmd.arg("split-window")
-                    .arg("-d")
-                    .arg(split_arg)
-                    .arg("-l")
-                    .arg(format!("{}%", percentage))
-                    .arg("-t")
-                    .arg(&current_pane_id)
-                    .arg("-c")
-                    .arg(path.to_string_lossy().as_ref())
-                    .arg("-P")
-                    .arg("-F")
-                    .arg("#{pane_id}");
-                match get_command_output(cmd, debug) {
-                    Ok(new_id) => {
-                        pane_ids.push(new_id.clone());
-                        current_pane_id = new_id;
+                let mut current_pane_id = root_pane_id.clone();
+                for i in 0..wc.panes.len().saturating_sub(1) {
+                    let percentage = split_percentage(&ratios, i, remaining_ratio);
+                    let mut cmd = Command::new("tmux");
+                    cmd.arg("split-window")
+                        .arg("-d")
+                        .arg(split_arg)
+                        .arg("-l")
+                        .arg(format!("{}%", percentage))
+                        .arg("-t")
+                        .arg(&current_pane_id)
+                        .arg("-c")
+                        .arg(path.to_string_lossy().as_ref())
+                        .arg("-P")
+                        .arg("-F")
+                        .arg("#{pane_id}");
+                    match get_command_output(cmd) {
+                        Ok(new_id) => {
+                            tracing::trace!("split pane {new_id} from {current_pane_id}");
+                            pane_ids.push(new_id.clone());
+                            current_pane_id = new_id;
+                        }
+                        Err(e) => {
+                            tracing::error!("split-window failed: {e}");
+                            break;
+                        }
                     }
-                    Err(e) => {
-                        eprintln!("seela: split-window failed: {e}");
-                        break;
-                    }
+                    remaining_ratio -= ratios[i];
                 }
-                remaining_ratio -= ratios[i];
-            }
 
-            for (i, pane_config) in wc.panes.iter().enumerate() {
-                if i < pane_ids.len() {
-                    setup_pane(
-                        &pane_ids[i],
-                        pane_config,
-                        path,
-                        config_dir,
-                        debug,
-                        &mut exec_tasks,
-                        session_name,
-                        window_name,
-                    )?;
+                for (i, pane_config) in wc.panes.iter().enumerate() {
+                    if i < pane_ids.len() {
+                        setup_pane(
+                            &pane_ids[i],
+                            pane_config,
+                            path,
+                            config_dir,
+                            &mut exec_tasks,
+                            session_name,
+                            window_name,
+                        )?;
+                    }
                 }
             }
 
@@ -258,6 +264,10 @@ fn create_session_from_config(
                 let window_name_s = window_name.to_string();
                 let path_s = path.to_path_buf();
                 let config_dir_s = config_dir.to_path_buf();
+                tracing::debug!(
+                    "spawning {} hook(s) for window '{window_name}' (parallel={parallel})",
+                    hooks.len()
+                );
                 hook_handles.push(thread::spawn(move || {
                     run_window_hooks(
                         &hooks,
@@ -277,12 +287,10 @@ fn create_session_from_config(
     }
 
     if !exec_tasks.is_empty() {
-        if debug {
-            println!(
-                "Waiting {}ms for tmux to stabilize...",
-                config.tmux.startup_delay_ms
-            );
-        }
+        tracing::debug!(
+            "waiting {}ms for tmux to stabilize before sending execs",
+            config.tmux.startup_delay_ms
+        );
         thread::sleep(Duration::from_millis(config.tmux.startup_delay_ms));
 
         let tmux_cfg = config.tmux.clone();
@@ -348,6 +356,7 @@ fn create_session_from_config(
                                         shell_escape(&task.pane_id),
                                         expanded_val,
                                     );
+                                    tracing::trace!("@run: {}", expanded_val);
                                     wait_for_shell_idle(&task.pane_id, 10_000);
                                     let mut load = Command::new("tmux")
                                         .arg("load-buffer").arg("-")
@@ -368,17 +377,20 @@ fn create_session_from_config(
                                 }
                                 "@wait" => {
                                     if let Ok(secs) = val.parse::<u64>() {
+                                        tracing::trace!("@wait {secs}s");
                                         thread::sleep(Duration::from_secs(secs));
                                     }
                                     continue;
                                 }
                                 "@wait-milli" | "@wait-ms" => {
                                     if let Ok(ms) = val.parse::<u64>() {
+                                        tracing::trace!("@wait-ms {ms}ms");
                                         thread::sleep(Duration::from_millis(ms));
                                     }
                                     continue;
                                 }
                                 "@send-key" | "@sk" => {
+                                    tracing::trace!("@sk {val}");
                                     thread::sleep(Duration::from_millis(tmux_cfg.key_delay_ms));
                                     let mut key_cmd = Command::new("tmux");
                                     key_cmd
@@ -392,6 +404,7 @@ fn create_session_from_config(
                             }
                         }
 
+                        tracing::trace!("exec: {trimmed}");
                         wait_for_shell_idle(&task.pane_id, 10_000);
 
                         let mut run_cmd = Command::new("tmux");
@@ -418,6 +431,7 @@ fn create_session_from_config(
     }
 
     if let Some(focus_name) = &session_config.window_focus {
+        tracing::debug!("focusing window '{focus_name}'");
         Command::new("tmux")
             .arg("select-window")
             .arg("-t")
@@ -447,7 +461,6 @@ fn expand_exec_path(s: &str, config_dir: &Path) -> String {
 }
 
 fn run_hook(script: &str, session_name: &str, window_name: &str, path: &Path, config_dir: &Path) {
-    // Expand only the first token so arguments are preserved.
     let expanded = {
         let mut parts = script.splitn(2, ' ');
         let cmd = expand_exec_path(parts.next().unwrap_or(""), config_dir);
@@ -465,21 +478,19 @@ fn run_hook(script: &str, session_name: &str, window_name: &str, path: &Path, co
         shell_escape(window_name),
         expanded,
     );
+    tracing::trace!("running hook: {script}");
     match Command::new("sh").arg("-c").arg(&cmd_str).output() {
         Ok(out) if !out.status.success() => {
             let stderr = String::from_utf8_lossy(&out.stderr);
             let stderr = stderr.trim();
             if !stderr.is_empty() {
-                eprintln!(
-                    "seela: hook '{}' failed ({}): {}",
-                    script, out.status, stderr
-                );
+                tracing::error!("hook '{}' failed ({}): {}", script, out.status, stderr);
             } else {
-                eprintln!("seela: hook '{}' failed ({})", script, out.status);
+                tracing::error!("hook '{}' failed ({})", script, out.status);
             }
         }
-        Err(e) => eprintln!("seela: hook '{}' could not run: {}", script, e),
-        _ => {}
+        Err(e) => tracing::error!("hook '{}' could not run: {}", script, e),
+        _ => tracing::debug!("hook '{}' completed successfully", script),
     }
 }
 
@@ -514,7 +525,6 @@ fn setup_pane(
     config: &crate::config::Pane,
     path: &Path,
     config_dir: &Path,
-    debug: bool,
     exec_tasks: &mut Vec<ExecTask>,
     session_name: &str,
     window_name: &str,
@@ -550,13 +560,14 @@ fn setup_pane(
                 .arg("-P")
                 .arg("-F")
                 .arg("#{pane_id}");
-            match get_command_output(cmd, debug) {
+            match get_command_output(cmd) {
                 Ok(new_id) => {
+                    tracing::trace!("split pane {new_id} from {current_pane_id}");
                     sub_pane_ids.push(new_id.clone());
                     current_pane_id = new_id;
                 }
                 Err(e) => {
-                    eprintln!("seela: split-window failed: {e}");
+                    tracing::error!("split-window failed: {e}");
                     break;
                 }
             }
@@ -570,7 +581,6 @@ fn setup_pane(
                     sub_pane_config,
                     path,
                     config_dir,
-                    debug,
                     exec_tasks,
                     session_name,
                     window_name,

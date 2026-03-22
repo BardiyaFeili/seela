@@ -17,7 +17,7 @@ pub fn run_confirm(cmd: &str) -> Result<(), Box<dyn Error>> {
     if input.is_empty() || input == "y" || input == "yes" {
         let status = Command::new("sh").arg("-c").arg(cmd).status()?;
         if !status.success() {
-            eprintln!("Command exited with status: {}", status);
+            tracing::warn!("@confirm command exited with status: {}", status);
         }
     } else {
         println!("Skipped.");
@@ -36,7 +36,6 @@ fn is_excluded(path: &Path, exclude_paths: &[PathBuf], search_dirs: &[PathBuf]) 
         return false;
     };
 
-    // A search_dir more specific than the exclude rule re-opens the path.
     !search_dirs
         .iter()
         .any(|s| path.starts_with(s) && s.as_os_str().len() > exclude_rule.as_os_str().len())
@@ -50,7 +49,26 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
     let search_dirs = expand_paths(&config.folders.search_dirs);
     let exclude_paths = expand_paths(config.folders.exclude_paths.as_deref().unwrap_or(&[]));
     let force_include = expand_paths(config.folders.force_include.as_deref().unwrap_or(&[]));
-    
+
+    // Warn about configured paths that don't exist.
+    for dir in &search_dirs {
+        if !dir.exists() {
+            tracing::warn!("search_dir does not exist: {}", dir.display());
+        }
+    }
+    for p in config.folders.exclude_paths.as_deref().unwrap_or(&[]) {
+        let expanded = expand_path(p);
+        if !expanded.exists() {
+            tracing::warn!("exclude_path does not exist: {}", expanded.display());
+        }
+    }
+    for p in config.folders.force_include.as_deref().unwrap_or(&[]) {
+        let expanded = expand_path(p);
+        if !expanded.exists() {
+            tracing::warn!("force_include path does not exist: {}", expanded.display());
+        }
+    }
+
     let mut projects: Vec<PathBuf> = force_include.into_iter().filter(|p| p.exists()).collect();
 
     let discovered: Vec<PathBuf> = search_dirs
@@ -64,7 +82,10 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
                 let entry = match it.next() {
                     None => break,
                     Some(Ok(entry)) => entry,
-                    Some(Err(_)) => continue,
+                    Some(Err(e)) => {
+                        tracing::warn!("error walking directory: {e}");
+                        continue;
+                    }
                 };
 
                 let path = entry.path();
@@ -81,6 +102,7 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
                 }
 
                 if path.join(".git").exists() {
+                    tracing::trace!("found project: {}", path.display());
                     results.push(path.to_path_buf());
                     it.skip_current_dir();
                     continue;
@@ -96,17 +118,21 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
         }
     }
 
+    tracing::debug!("found {} projects", projects.len());
     projects
 }
 
-pub fn run(
-    config: &Config,
-    config_dir: &Path,
-    debug: bool,
-    headless: bool,
-) -> Result<(), Box<dyn Error>> {
-    if debug {
-        println!("Loaded Config: {config:#?}");
+pub fn run(config: &Config, config_dir: &Path, headless: bool) -> Result<(), Box<dyn Error>> {
+    // Check tmux is available before doing anything.
+    let tmux_ok = std::process::Command::new("which")
+        .arg("tmux")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+
+    if !tmux_ok {
+        return Err("tmux not found in PATH — please install tmux".into());
     }
 
     let projects = find_projects(config);
@@ -115,16 +141,18 @@ pub fn run(
         .map(|p| p.to_string_lossy().to_string())
         .collect::<Vec<String>>();
 
+    if project_strings.is_empty() {
+        tracing::warn!("no projects found in configured search_dirs");
+    }
+
     if headless {
-        println!("Headless mode enabled. Skipping fzf and tmux.");
-        if debug {
-            println!("Found {} projects", project_strings.len());
-        }
+        tracing::debug!("headless mode, skipping fzf and tmux");
+        tracing::debug!("found {} projects", project_strings.len());
         return Ok(());
     }
 
     if let Some(selected) = crate::fzf::select_project(&project_strings, &config.fzf)? {
-        crate::tmux::open_session(Path::new(&selected), config, config_dir, debug)?;
+        crate::tmux::open_session(Path::new(&selected), config, config_dir)?;
     }
 
     Ok(())

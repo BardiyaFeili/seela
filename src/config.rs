@@ -2,6 +2,7 @@ use serde::Deserialize;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use tracing::Level;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
@@ -11,12 +12,41 @@ pub struct Config {
     #[serde(default)]
     pub tmux: TmuxConfig,
     #[serde(default)]
+    pub log: LogConfig,
+    #[serde(default)]
     pub windows: Vec<Window>,
     #[serde(default)]
     pub custom_sessions: Vec<Session>,
     pub default_session: Option<Session>,
     #[serde(default)]
     pub project_types: Vec<ProjectType>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct LogConfig {
+    #[serde(
+        default = "defaults::log_level",
+        deserialize_with = "deserialize_level"
+    )]
+    pub level: Level,
+}
+
+impl Default for LogConfig {
+    fn default() -> Self {
+        Self {
+            level: defaults::log_level(),
+        }
+    }
+}
+
+fn deserialize_level<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Level, D::Error> {
+    let s = String::deserialize(d)?;
+    s.parse::<Level>().map_err(|_| {
+        serde::de::Error::custom(format!(
+            "invalid log level '{}', expected one of: trace, debug, info, warn, error",
+            s
+        ))
+    })
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -64,6 +94,7 @@ pub struct Session {
 #[derive(Debug, Deserialize, Clone)]
 pub struct Window {
     pub name: String,
+    #[serde(default)]
     pub panes: Vec<Pane>,
     #[serde(default)]
     pub hooks: Vec<String>,
@@ -107,6 +138,8 @@ impl Default for FzfConfig {
 }
 
 mod defaults {
+    use tracing::Level;
+
     pub fn preview() -> bool {
         true
     }
@@ -122,6 +155,9 @@ mod defaults {
     pub fn action_delay() -> u64 {
         200
     }
+    pub fn log_level() -> Level {
+        Level::WARN
+    }
 }
 
 pub fn expand_path(path: &str) -> PathBuf {
@@ -129,10 +165,25 @@ pub fn expand_path(path: &str) -> PathBuf {
     PathBuf::from(expanded.to_string())
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("could not read config file: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("could not parse config: {0}")]
+    Parse(#[from] toml::de::Error),
+    #[error("folders.search_dirs must not be empty")]
+    EmptySearchDirs,
+}
+
 impl Config {
-    pub fn load(path: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load(path: PathBuf) -> Result<Self, ConfigError> {
         let content = fs::read_to_string(path)?;
         let config: Config = toml::from_str(&content)?;
+
+        if config.folders.search_dirs.is_empty() {
+            return Err(ConfigError::EmptySearchDirs);
+        }
+
         Ok(config)
     }
 

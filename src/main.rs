@@ -4,6 +4,7 @@ use std::error::Error;
 mod cli;
 mod config;
 mod fzf;
+mod logging;
 mod run;
 mod tmux;
 
@@ -16,17 +17,27 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let config_path = config::get_config_path(args.config);
 
-    if let Some(path) = config_path {
-        let config_dir = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-        match config::Config::load(path) {
-            Ok(cfg) => run::run(&cfg, &config_dir, args.debug, args.headless)?,
-            Err(e) => {
-                eprintln!("Error loading config: {e}");
-                std::process::exit(1);
-            }
+    let Some(path) = config_path else {
+        eprintln!("seela: no config file found");
+        std::process::exit(1);
+    };
+
+    let config_dir = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+
+    let cfg = match config::Config::load(path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("seela: {e}");
+            std::process::exit(1);
         }
-    } else {
-        eprintln!("Error: No config file found in the search paths.");
+    };
+
+    let _guard = logging::init(cfg.log.level);
+
+    tracing::debug!("config loaded: {cfg:#?}");
+
+    if let Err(e) = run::run(&cfg, &config_dir, args.headless) {
+        tracing::error!("{e}");
         std::process::exit(1);
     }
 
