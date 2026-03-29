@@ -2,7 +2,11 @@ use clap::Parser;
 use std::error::Error;
 use tracing::{debug, error};
 
-use crate::run::run;
+use crate::{
+    config::load_config,
+    logging::init,
+    run::{run, run_confirm},
+};
 
 mod cli;
 mod config;
@@ -15,27 +19,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = cli::Args::parse();
 
     if let Some(cmd) = args.run_command {
-        return run::run_confirm(&cmd);
+        return run_confirm(&cmd);
     }
 
-    let config_path = config::get_config_path(args.config.clone());
+    let (cfg, config_dir) = load_config(args.config.clone())?;
 
-    let Some(path) = config_path else {
-        eprintln!("seela: no config file found");
-        std::process::exit(1);
-    };
-
-    let config_dir = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-
-    let cfg = match config::Config::load(path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("seela: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    let _guard = logging::init(cfg.log.level);
+    let _guard = init(cfg.log.level);
 
     debug!("config loaded: {cfg:#?}");
 

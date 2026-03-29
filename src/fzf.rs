@@ -31,9 +31,7 @@ pub fn select_project(
     }
 
     if let Some(opts) = &config.fzf_opts {
-        for opt in opts.split_whitespace() {
-            cmd.arg(opt);
-        }
+        cmd.args(opts.split_whitespace());
     }
 
     let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;

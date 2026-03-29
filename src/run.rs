@@ -14,6 +14,46 @@ use std::{
 use tracing::{debug, trace, warn};
 use walkdir::WalkDir;
 
+pub fn run(config: &Config, config_dir: &Path, cli: Args) -> Result<(), Box<dyn Error>> {
+    if !check_binary("tmux") {
+        return Err("tmux not found in PATH — please install tmux".into());
+    }
+
+    if let Some(path) = cli.dir {
+        trace!("Using the path given to the command: {:?}", path);
+        if !path.exists() {
+            return Err(format!(
+                "Path {:?} passed to seela does not exist!! D: exiting...",
+                path
+            )
+            .into());
+        }
+        open_session(&path, config, config_dir)?;
+    } else {
+        let projects = find_projects(config);
+        let project_strings = projects
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect::<Vec<String>>();
+
+        if project_strings.is_empty() {
+            warn!("no projects found in configured search_dirs");
+        }
+
+        if cli.headless {
+            debug!("headless mode, skipping fzf and tmux");
+            debug!("found {} projects", project_strings.len());
+            return Ok(());
+        }
+
+        if let Some(selected) = select_project(&project_strings, &config.fzf)? {
+            open_session(Path::new(&selected), config, config_dir)?;
+        }
+    }
+
+    Ok(())
+}
+
 pub fn check_binary(name: &str) -> bool {
     Command::new("which")
         .arg(name)
@@ -137,44 +177,4 @@ pub fn find_projects(config: &Config) -> Vec<PathBuf> {
 
     debug!("found {} projects", projects.len());
     projects
-}
-
-pub fn run(config: &Config, config_dir: &Path, cli: Args) -> Result<(), Box<dyn Error>> {
-    if !check_binary("tmux") {
-        return Err("tmux not found in PATH — please install tmux".into());
-    }
-
-    if let Some(path) = cli.dir {
-        trace!("Using the path given to the command: {:?}", path);
-        if !path.exists() {
-            return Err(format!(
-                "Path {:?} passed to seela does not exist!! D: exiting...",
-                path
-            )
-            .into());
-        }
-        open_session(&path, config, config_dir)?;
-    } else {
-        let projects = find_projects(config);
-        let project_strings = projects
-            .iter()
-            .map(|p| p.to_string_lossy().to_string())
-            .collect::<Vec<String>>();
-
-        if project_strings.is_empty() {
-            warn!("no projects found in configured search_dirs");
-        }
-
-        if cli.headless {
-            debug!("headless mode, skipping fzf and tmux");
-            debug!("found {} projects", project_strings.len());
-            return Ok(());
-        }
-
-        if let Some(selected) = select_project(&project_strings, &config.fzf)? {
-            open_session(Path::new(&selected), config, config_dir)?;
-        }
-    }
-
-    Ok(())
 }
