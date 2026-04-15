@@ -7,6 +7,7 @@ use crate::{
 use rayon::prelude::*;
 use std::{
     error::Error,
+    fs::canonicalize,
     io::{self, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -28,6 +29,7 @@ pub fn run(config: &Config, config_dir: &Path, cli: Args) -> Result<(), Box<dyn 
             )
             .into());
         }
+        let path = canonicalize(path).unwrap();
         open_session(&path, config, config_dir)?;
     } else {
         let projects = find_projects(config);

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 use tracing::Level;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
@@ -26,7 +26,7 @@ fn truncate_if_needed(path: &std::path::Path) {
 
 pub fn init(level: Level) -> WorkerGuard {
     let dir = log_dir();
-    let _ = std::fs::create_dir_all(&dir);
+    let _ = fs::create_dir_all(&dir);
 
     let log_path = dir.join("seela.log");
     truncate_if_needed(&log_path);
